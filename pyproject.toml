@@ -41,7 +41,9 @@ Changelog = "https://github.com/flint-crew/eye-patch/releases"
 test = ["pytest >=9", "pytest-cov >=7"]
 dev = [
     { include-group = "test" },
+    "mypy>=1.19.1",
     "ruff>=0.14.14",
+    "ty>=0.0.13",
 ]
 docs = [
   "sphinx>=7.0",
