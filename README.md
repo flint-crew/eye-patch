@@ -1,4 +1,4 @@
-# eye-patch
+# Eye Patch
 
 The pirate mask!
 
