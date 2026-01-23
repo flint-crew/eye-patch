@@ -4,7 +4,6 @@ The pirate mask!
 
 <img width="256" height="256" alt="image" src="https://github.com/user-attachments/assets/2a8e442c-036b-4d78-8370-180c02588c95" />
 
-
 [![Actions Status][actions-badge]][actions-link]
 [![Documentation Status][rtd-badge]][rtd-link]
 [![PyPI version][pypi-version]][pypi-link]
@@ -25,5 +24,3 @@ The pirate mask!
 [coverage-link]:            https://codecov.io/github/flint-crew/eye-patch
 
 <!-- prettier-ignore-end -->
-
-
