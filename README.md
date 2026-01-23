@@ -6,7 +6,6 @@
 [![PyPI version][pypi-version]][pypi-link]
 [![PyPI platforms][pypi-platforms]][pypi-link]
 
-
 [![Coverage][coverage-badge]][coverage-link]
 
 <!-- SPHINX-START -->

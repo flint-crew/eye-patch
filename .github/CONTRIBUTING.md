@@ -3,7 +3,6 @@ description of best practices for developing scientific packages.
 
 [spc-dev-intro]: https://learn.scientific-python.org/development/
 
-
 # Setting up a development environment manually
 
 You can set up a development environment by running:

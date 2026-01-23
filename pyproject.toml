@@ -68,7 +68,7 @@ dependency-groups = ["test"]
 env-vars.PYTHONWARNDEFAULTENCODING = "1"
 
 
-[tool.pytest]
+[tool.pytest.ini_options]
 minversion = "9.0"
 addopts = ["-ra", "--showlocals"]
 strict = true
