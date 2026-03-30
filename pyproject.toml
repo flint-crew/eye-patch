@@ -5,7 +5,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "eye-patch"
-authors = [{ name = "Alec Thomson", email = "alec.thomson@skao.int" }]
+authors = [
+    { name = "Alec Thomson", email = "alec.thomson@skao.int" },
+    { name = "Tim Galvin", email = "tim.galvin@csiro.au" },
+  ]
 description = "The pirate mask."
 readme = "README.md"
 license = "BSD-3-Clause"
@@ -34,6 +37,7 @@ dependencies = [
     "numpy>=2.4.3",
     "radio-beam>=0.3.9",
     "reproject>=0.19.0",
+    "scipy"
 ]
 
 [project.urls]
@@ -41,6 +45,10 @@ Homepage = "https://github.com/flint-crew/eye-patch"
 "Bug Tracker" = "https://github.com/flint-crew/eye-patch/issues"
 Discussions = "https://github.com/flint-crew/eye-patch/discussions"
 Changelog = "https://github.com/flint-crew/eye-patch/releases"
+
+
+[project.scripts]
+eye-patch = "eye_patch.masking:cli"
 
 
 [dependency-groups]
