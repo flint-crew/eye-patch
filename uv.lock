@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -433,6 +433,7 @@ dependencies = [
     { name = "numpy" },
     { name = "radio-beam" },
     { name = "reproject" },
+    { name = "scipy" },
 ]
 
 [package.dev-dependencies]
@@ -465,6 +466,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.4.3" },
     { name = "radio-beam", specifier = ">=0.3.9" },
     { name = "reproject", specifier = ">=0.19.0" },
+    { name = "scipy" },
 ]
 
 [package.metadata.requires-dev]

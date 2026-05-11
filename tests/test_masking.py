@@ -133,7 +133,22 @@ def test_arg_parser_cli_and_masking_options():
     options which are properly converted to a MaskingOptions object"""
     parser = get_parser()
     args = parser.parse_args(
-        args="mask img --rms-fits rms --bkg-fits bkg --flood-fill --flood-fill-positive-seed-clip 10 --flood-fill-positive-flood-clip 1. --flood-fill-use-mac --flood-fill-use-mac-box-size 100".split()
+        args=[
+            "mask",
+            "img",
+            "--rms-fits",
+            "rms",
+            "--bkg-fits",
+            "bkg",
+            "--flood-fill",
+            "--flood-fill-positive-seed-clip",
+            "10",
+            "--flood-fill-positive-flood-clip",
+            "1.",
+            "--flood-fill-use-mac",
+            "--flood-fill-use-mac-box-size",
+            "100",
+        ]
     )
     masking_options = create_options_from_parser(
         parser_namespace=args, options_class=MaskingOptions
@@ -151,7 +166,27 @@ def test_arg_parser_cli_and_masking_options_for_multiscale():
     want to make sure that the multiscale erosion are picked up"""
     parser = get_parser()
     args = parser.parse_args(
-        args="mask img --beam-shape-erode-scales 0 1 2 4 --rms-fits rms --bkg-fits bkg --flood-fill --flood-fill-positive-seed-clip 10 --flood-fill-positive-flood-clip 1. --flood-fill-use-mac --flood-fill-use-mac-box-size 100".split()
+        args=[
+            "mask",
+            "img",
+            "--beam-shape-erode-scales",
+            "0",
+            "1",
+            "2",
+            "4",
+            "--rms-fits",
+            "rms",
+            "--bkg-fits",
+            "bkg",
+            "--flood-fill",
+            "--flood-fill-positive-seed-clip",
+            "10",
+            "--flood-fill-positive-flood-clip",
+            "1.",
+            "--flood-fill-use-mac",
+            "--flood-fill-use-mac-box-size",
+            "100",
+        ]
     )
     masking_options = create_options_from_parser(
         parser_namespace=args, options_class=MaskingOptions
@@ -164,13 +199,13 @@ def test_arg_parser_cli_and_masking_options_for_multiscale():
 @pytest.fixture
 def beam_fits_header() -> fits.Header:
     return fits.Header(
-        dict(
-            CDELT1=-0.000694444444444444,
-            CDELT2=0.000694444444444444,
-            BMAJ=0.00340540107886635,
-            BMIN=0.00283268735470751,
-            BPA=74.6618858613889,
-        )
+        {
+            "CDELT1": -0.000694444444444444,
+            "CDELT2": 0.000694444444444444,
+            "BMAJ": 0.00340540107886635,
+            "BMIN": 0.00283268735470751,
+            "BPA": 74.6618858613889,
+        }
     )
 
 
@@ -185,27 +220,28 @@ def test_create_beam_mask_kernel(beam_fits_header):
     assert mask_2.shape == (100, 100)
     assert np.sum(mask_2) == 52
 
+    fits_header = fits.Header(
+        {
+            "CDELT1": -0.000694444444444444,
+            "CDELT2": 0.2000694444444444444,
+            "BMAJ": 0.00340540107886635,
+            "BMIN": 0.00283268735470751,
+            "BPA": 74.6618858613889,
+        }
+    )
     with pytest.raises(AssertionError):
-        fits_header = fits.Header(
-            dict(
-                CDELT1=-0.000694444444444444,
-                CDELT2=0.2000694444444444444,
-                BMAJ=0.00340540107886635,
-                BMIN=0.00283268735470751,
-                BPA=74.6618858613889,
-            )
-        )
         create_beam_mask_kernel(fits_header=fits_header)
 
+    fits_header = fits.Header(
+        {
+            "CDELT1": -0.000694444444444444,
+            "BMAJ": 0.00340540107886635,
+            "BMIN": 0.00283268735470751,
+            "BPA": 74.6618858613889,
+        }
+    )
     with pytest.raises(KeyError):
-        fits_header = fits.Header(
-            dict(
-                CDELT1=-0.000694444444444444,
-                BMAJ=0.00340540107886635,
-                BMIN=0.00283268735470751,
-                BPA=74.6618858613889,
-            )
-        )
+
         create_beam_mask_kernel(fits_header=fits_header)
 
 
@@ -357,10 +393,10 @@ def test_beam_shape_erode_nobeam():
     should the beam shape structure connectivity be statisifed. This should simply return
     the input array since there is no beam information"""
     fits_header = fits.Header(
-        dict(
-            CDELT1=-0.000694444444444444,
-            CDELT2=0.000694444444444444,
-        )
+        {
+            "CDELT1": -0.000694444444444444,
+            "CDELT2": 0.000694444444444444,
+        }
     )
 
     mask = np.zeros((500, 500)).astype(bool)
