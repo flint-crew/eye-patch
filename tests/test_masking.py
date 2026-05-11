@@ -241,7 +241,6 @@ def test_create_beam_mask_kernel(beam_fits_header):
         }
     )
     with pytest.raises(KeyError):
-
         create_beam_mask_kernel(fits_header=fits_header)
 
 
