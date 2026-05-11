@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NamedTuple
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import astropy.units as u
 import numpy as np
@@ -12,7 +13,8 @@ if TYPE_CHECKING:
     from radio_beam import Beam
 
 
-class BeamShape(NamedTuple):
+@dataclass(frozen=True)
+class BeamShape:
     """A simple container to represent a fitted 2D gaussian,
     intended for the main lobe of the synthesised beam. This
     class has been defined to avoid issues with the serialisation
@@ -77,7 +79,7 @@ def get_pixels_per_beam(fits_path: Path) -> float | None:
         fits_path (Path): FITS image to consideer
 
     Returns:
-        Optional[float]: Number of pixels per beam. If beam is not in header then None is returned.
+        float | None: Number of pixels per beam. If beam is not in header then None is returned.
     """
 
     beam_shape = get_beam_shape(fits_path=fits_path)
@@ -90,7 +92,10 @@ def get_pixels_per_beam(fits_path: Path) -> float | None:
     pixel_ra = np.abs(header["CDELT1"] * 3600)
     pixel_dec = np.abs(header["CDELT2"] * 3600)
 
+    assert isinstance(beam_shape, BeamShape), (
+        f"Expected type of Beamshape, but have {type(beam_shape)}"
+    )
     beam_area = beam_shape.bmaj_arcsec * beam_shape.bmin_arcsec * np.pi
     pixel_area = pixel_ra * pixel_dec
 
-    return beam_area / pixel_area
+    return float(beam_area / pixel_area)

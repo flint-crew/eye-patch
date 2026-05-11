@@ -13,7 +13,6 @@ from eye_patch.masking import (
     _need_to_make_signal,
     _verify_set_positive_seed_clip,
     beam_shape_erode,
-    consider_beam_mask_round,
     create_beam_mask_kernel,
     create_options_from_parser,
     create_snr_mask_from_fits,
@@ -369,12 +368,12 @@ def test_fft_binary_erosion() -> None:
 
     kernel = np.zeros(base_shape)
     kernel[490:510, 490:510] = 1
-    eroded = fft_binary_erosion(mask=mask, kernel=kernel)
+    eroded = fft_binary_erosion(mask=mask, kernel=kernel.astype(bool))
     assert np.sum(eroded) == 6561
 
     kernel = np.zeros(base_shape)
     kernel[450:550, 450:550] = 1
-    eroded = fft_binary_erosion(mask=mask, kernel=kernel)
+    eroded = fft_binary_erosion(mask=mask, kernel=kernel.astype(bool))
     assert np.sum(eroded) == 1
     assert np.unravel_index(np.argmax(eroded), base_shape) == (
         np.int64(500),
@@ -383,7 +382,7 @@ def test_fft_binary_erosion() -> None:
 
     kernel = np.zeros(base_shape)
     kernel[400:600, 400:600] = 1
-    eroded = fft_binary_erosion(mask=mask, kernel=kernel)
+    eroded = fft_binary_erosion(mask=mask, kernel=kernel.astype(bool))
     assert np.sum(eroded) == 0
 
 
@@ -405,32 +404,6 @@ def test_beam_shape_erode_nobeam():
     new_mask = beam_shape_erode(mask=mask, fits_header=fits_header)
     assert new_mask is mask
     assert np.sum(new_mask) == 1
-
-
-def test_consider_beam_masking_round():
-    """Test to ensure the beam mask consideration log is correct"""
-    lower = ("all", "ALL", "aLl")
-    states = (
-        consider_beam_mask_round(current_round=1, mask_rounds=low) for low in lower
-    )
-
-    assert all(states)
-
-    assert consider_beam_mask_round(current_round=3, mask_rounds=1)
-    assert not consider_beam_mask_round(current_round=0, mask_rounds=1)
-
-    assert consider_beam_mask_round(current_round=3, mask_rounds=(1, 2, 3, 4, 5))
-    assert not consider_beam_mask_round(current_round=3, mask_rounds=(1, 2, 4, 5))
-
-    assert not consider_beam_mask_round(current_round=3, mask_rounds=None)
-
-    assert not consider_beam_mask_round(
-        current_round=3, mask_rounds=1, allow_beam_masks=False
-    )
-    assert consider_beam_mask_round(
-        current_round=3, mask_rounds=1, allow_beam_masks=True
-    )
-    assert consider_beam_mask_round(current_round=1, mask_rounds=1)
 
 
 @pytest.fixture
@@ -458,7 +431,7 @@ def test_make_masking_options():
 
     assert masking_options.base_snr_clip != -1
 
-    masking_options = masking_options.with_options(base_snr_clip=-1)
+    masking_options = masking_options.with_options(base_snr_clip=-1)  # type: ignore[arg-type]
     assert masking_options.base_snr_clip == -1
 
 
@@ -491,6 +464,7 @@ def test_fits_masking_convolve_first(fits_dir):
     )
 
     assert isinstance(names, FITSMaskNames)
+    assert names.scale_mask_fits is not None
     assert names.scale_mask_fits.exists()
     assert names.signal_fits is None
 
@@ -529,6 +503,7 @@ def test_fits_masking_with_signal(fits_dir):
 
     assert isinstance(names, FITSMaskNames)
     assert names.mask_fits.exists()
+    assert names.signal_fits is not None
     assert names.signal_fits.exists()
 
     mask_data = fits.getdata(names.mask_fits)

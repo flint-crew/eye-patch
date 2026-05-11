@@ -7,13 +7,14 @@ from __future__ import annotations
 import logging
 from argparse import ArgumentParser
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import NamedTuple, TypeAlias
 
 import astropy.units as u
 import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
 from capn_crunch import BaseOptions, add_options_to_parser, create_options_from_parser
+from numpy.typing import NDArray
 from radio_beam import Beam
 from reproject import reproject_interp
 from scipy.ndimage import (
@@ -26,14 +27,15 @@ from scipy.ndimage import binary_fill_holes, label, maximum_filter, minimum_filt
 from scipy.signal import fftconvolve
 
 from eye_patch.naming import FITSMaskNames, create_fits_mask_names
-from eye_patch.pixel_utils import get_pixels_per_beam
 
-if TYPE_CHECKING:
-    from collections.abc import Collection
-
-    from numpy.typing import NDArray
+# Add explicit export so mypy on tests is ok
+__all__ = ["create_options_from_parser"]
 
 # TODO: Need to remove a fair amount of old approaches, and deprecate some of the toy functions
+
+# The masks can be represented as either booleans or floats. If booleans they get typecase to floats
+# during fits file creation.
+MaskLike: TypeAlias = NDArray[np.floating]
 
 logger = logging.getLogger("__name__")
 
@@ -78,47 +80,13 @@ class MaskingOptions(BaseOptions):
     """Attempt to construct mask across scales by first convolving the input image by a scale kernel, then run the island construction stage"""
 
 
-def consider_beam_mask_round(
-    current_round: int,
-    mask_rounds: str | Collection[int] | int,
-    allow_beam_masks: bool = True,
-) -> bool:
-    """Evaluate whether a self-calibration round should have a beam clean mask
-    constructed. Rules are:
-
-    - if `mask_rounds` is a string and is "all", all rounds will have a beam mask
-    - if 'mask_rounds' is a single integer, so long as `current_round` is larger it will have a beam mask
-    - if `mask_rounds` is iterable and contains `current_round` it will have a beam mask
-    - if `allow_beam_masks` is False a False is returned. Otherwise options above are considered.
-
-    Args:
-        current_round (int): The current self-calibration round that is being performed
-        mask_rounds (Union[str, Collection[int], int]): The rules to consider whether a beam mask is needed
-        allow_beam_masks (bool, optional): A global allow / deny. This should be `True` for other rules to be considered. Defaults to True.
-
-    Returns:
-        bool: Whether per beam mask should be performed
-    """
-    logger.info(f"Considering {current_round=} {mask_rounds=} {allow_beam_masks=}")
-
-    # The return below was getting silly to meantally parse
-    if not allow_beam_masks:
-        return False
-
-    return mask_rounds is not None and (
-        (isinstance(mask_rounds, str) and mask_rounds.lower() == "all")
-        or (isinstance(mask_rounds, int) and current_round >= mask_rounds)
-        or ((isinstance(mask_rounds, (list, tuple))) and current_round in mask_rounds)
-    )
-
-
 def create_beam_mask_kernel(
     fits_header: fits.Header,
     kernel_size: int | tuple[int, int] = 100,
     minimum_response: float = 0.6,
     pixel_scale: int | None = None,
     auto_resize: bool = True,
-) -> np.ndarray:
+) -> NDArray[np.bool]:
     """Make a mask using the shape of a beam in a FITS Header object. The
     beam properties in the ehader are used to generate the two-dimensional
     Gaussian main lobe, from which a cut is made based on the minimum
@@ -135,7 +103,7 @@ def create_beam_mask_kernel(
         KeyError: Raised if CDELT1 and CDELT2 missing
 
     Returns:
-        np.ndarray: Boolean mask of the kernel shape
+        NDArray[np.bool]: Boolean mask of the kernel shape
     """
     assert 0.0 < minimum_response < 1.0, (
         f"{minimum_response=}, should be between 0 to 1 (exclusive)"
@@ -171,7 +139,7 @@ def create_beam_mask_kernel(
         kernel_size = (kernel_size, kernel_size)
 
     # Trust no one, mate
-    assert isinstance(kernel_size, tuple) and len(kernel_size) == 2, (  # noqa: PT018
+    assert len(kernel_size) == 2, (
         f"{kernel_size=}, but should be a tuple[int, int] by now"
     )
 
@@ -205,11 +173,12 @@ def create_beam_mask_kernel(
             f"{kernel_size=} appears too small for {pixel_scale=} after {iteration=}"
         )
 
+    assert isinstance(mask, np.ndarray), f"Expected a numpy array, have {type(mask)}"
     return mask
 
 
 def fft_binary_erosion(
-    mask: NDArray[np.bool] | NDArray[np.floating],
+    mask: MaskLike,
     kernel: NDArray[np.bool],
 ) -> NDArray[np.bool]:
     """Attempt to perform a binary erosion using convolution therom. FFT
@@ -221,7 +190,7 @@ def fft_binary_erosion(
     sum.
 
     Args:
-        mask (NDArray[np.bool] | NDArray[np.floating]): The mask that will be eroded
+        mask (MaskLike): The mask that will be eroded
         kernel (NDArray[np.bool]): The kernel structure used for the erosion
 
     Returns:
@@ -238,32 +207,33 @@ def fft_binary_erosion(
 
     logger.info("... finished erosion")
 
-    return (erode_sum >= np.sum(kernel)).reshape(original_shape)
+    erosion_mask: NDArray[np.bool] = erode_sum >= np.sum(kernel)
+    return np.reshape(erosion_mask, original_shape)
 
 
 def create_multi_scale_erosion(
-    mask: NDArray[np.bool],
+    mask: MaskLike,
     fits_header: fits.Header,
     scale: int,
     minimum_response: float = 0.6,
-) -> NDArray[np.int32]:
+) -> NDArray[np.bool]:
     """Specialised encode per-scale clean masks as bitmapped per-pixel integer values.
 
     Args:
-        mask (np.ndarray): The current mask that will be eroded based on the beam shape
+        mask (MaskLike): The current mask that will be eroded based on the beam shape
         fits_header (fits.Header): The fits header of the mask used to generate the beam kernel shape
         scales (list[int] | None, optional): Defines the scales that are being used during multi-scale clean. Perform the beam erosion at each of these scales. Defaults to None.
         minimum_response (float, optional): The minimum response of the main restoring beam to craft the shape from. Defaults to 0.6.
 
     Returns:
-        NDArray[np.int32]: _description_
+        NDArray[np.bool]: The eroded mask
     """
     # Trust no one on the high seas, mate
     if not all(key in fits_header for key in ["BMAJ", "BMIN", "BPA"]):
         logger.warning(
             "Beam parameters missing. Not performing the beam shape erosion. "
         )
-        return mask
+        return mask  # type: ignore[return-value]
 
     logger.info(f"Eroding with {scale=}, {minimum_response=}")
 
@@ -299,15 +269,18 @@ def create_multi_scale_erosion(
         )
         return fft_binary_erosion(mask=mask, kernel=beam_mask_kernel)
 
-    return scipy_binary_erosion(input=mask, iterations=1, structure=beam_mask_kernel)
+    eroded_mask: NDArray[np.bool] = scipy_binary_erosion(
+        input=mask, iterations=1, structure=beam_mask_kernel
+    )
+    return eroded_mask
 
 
 def beam_shape_erode(
-    mask: np.ndarray,
+    mask: MaskLike,
     fits_header: fits.Header,
     minimum_response: float = 0.6,
     scales: list[int] | tuple[int, ...] | None = None,
-) -> NDArray[np.bool] | NDArray[np.int32]:
+) -> MaskLike:
     """Construct a kernel representing the shape of the restoring beam at
         a particular level, and use it as the basis of a binary erosion of the
         input mask.
@@ -322,13 +295,13 @@ def beam_shape_erode(
         is stored as the n'th bit.
 
         Args:
-            mask (np.ndarray): The current mask that will be eroded based on the beam shape
+            mask (MaskLike): The current mask that will be eroded based on the beam shape
             fits_header (fits.Header): The fits header of the mask used to generate the beam kernel shape
             minimum_response (float, optional): The minimum response of the main restoring beam to craft the shape from. Defaults to 0.6.
             scales (list[int] | tuple[int, ...] | None, optional): Defines the scales that are being used during multi-scale clean. Perform the beam erosion at each of these scales. Defaults to None.
 
         Returns:
-    NDArray[np.bool] | NDArray[np.int32]: The eroded beam shape. If a no/single scale provide it is a bool return, otherwise int32.
+    MaskLike: The eroded beam shape. If a no/single scale provide it is a bool return, otherwise int32.
     """
 
     if not all(key in fits_header for key in ["BMAJ", "BMIN", "BPA"]):
@@ -379,8 +352,7 @@ def extract_beam_mask_from_mosaic(
     """
     # TODO: Ideally we can accept an arbitrary WCS, or read the wsclean docs to
     # try to construct it ourselves. The last thing that this pirate wants is
-    # to run the imager in a dry-run type mode n cleaning type mode purely for
-    # the WCS.
+    # to run the imager in a dry-run type mode  mode purely for the WCS.
 
     mask_names = create_fits_mask_names(fits_image=fits_beam_image_path)
 
@@ -412,36 +384,57 @@ def extract_beam_mask_from_mosaic(
 
 
 def _get_signal_image(
-    image: np.ndarray | None = None,
-    rms: np.ndarray | None = None,
-    background: np.ndarray | None = None,
-    signal: np.ndarray | None = None,
-) -> np.ndarray:
+    image: NDArray[np.floating] | None = None,
+    rms: NDArray[np.floating] | None = None,
+    background: NDArray[np.floating] | None = None,
+    signal: NDArray[np.floating] | None = None,
+) -> NDArray[np.floating]:
+    """Construct a signal image from inputs. The signal is defined as:
+
+    >>> (image - background) / rms
+
+    Should an input to ``signal`` be provided it will take precedence.
+
+    Args:
+        image (NDArray[np.floating] | None, optional): The base image. Defaults to None.
+        rms (NDArray[np.floating] | None, optional): The noise estimate over the image. Defaults to None.
+        background (NDArray[np.floating] | None, optional): The background across the image. Defaults to None.
+        signal (NDArray[np.floating] | None, optional): A pre-calculate signal image. Defaults to None.
+
+    Raises:
+        ValueError: Raised when no signal is provided and there is not enough information to calculate one.
+
+    Returns:
+        NDArray[np.floating]: The output signal array
+    """
     if all(item is None for item in (image, background, rms, signal)):
         msg = "No input maps have been provided. "
         raise ValueError(msg)
 
-    if signal is None and image is not None and rms is not None:
-        if background is None:
-            logger.info("No background supplied, assuming zeros. ")
-            background = np.zeros_like(image)
+    if signal is not None:
+        return signal
 
-        out_signal = (image - background) / rms
-    else:
-        out_signal = signal
+    assert isinstance(image, np.ndarray), f"{image=}, but should be an array"
+    assert isinstance(rms, np.ndarray), f"{rms=}, but should be an array"
+    if background is None:
+        logger.info("No background supplied, assuming zeros. ")
+        background = np.zeros_like(image)
+
+    assert isinstance(background, np.ndarray)
+    out_signal: NDArray[np.floating] = (image - background) / rms
 
     return out_signal
 
 
 def grow_low_snr_mask(
-    image: np.ndarray | None = None,
-    rms: np.ndarray | None = None,
-    background: np.ndarray | None = None,
-    signal: np.ndarray | None = None,
+    image: NDArray[np.floating] | None = None,
+    rms: NDArray[np.floating] | None = None,
+    background: NDArray[np.floating] | None = None,
+    signal: NDArray[np.floating] | None = None,
     grow_low_snr: float = 2.0,
     grow_low_island_size: int = 512,
-    region_mask: np.ndarray | None = None,
-) -> np.ndarray:
+    region_mask: NDArray[np.bool] | None = None,
+) -> NDArray[np.bool]:
     """There may be cases where normal thresholding operations based on simple pixel-wise SNR
     cuts fail to pick up diffuse, low surface brightness regions of emission. When some type
     of masking operation is used there may be instances where these regions are never cleaned.
@@ -455,16 +448,16 @@ def grow_low_snr_mask(
 
     Args:
             Args:
-        image (Optional[np.ndarray], optional): The total intensity pixels to have the mask for. Defaults to None.
-        rms (Optional[np.ndarray], optional): The noise across the image. Defaults to None.
-        background (Optional[np.ndarray], optional): The background acros the image. If None, zeros are assumed. Defaults to None.
-        signal(Optional[np.ndarray], optional): A signal map. Defaults to None.
+        image (NDArray[np.floating] | None, optional): The total intensity pixels to have the mask for. Defaults to None.
+        rms (NDArray[np.floating] | None, optional): The noise across the image. Defaults to None.
+        background (NDArray[np.floating] | None, optional): The background acros the image. If None, zeros are assumed. Defaults to None.
+        signal(NDArray[np.floating] | None, optional): A signal map. Defaults to None.
         grow_low_snr (float, optional): The SNR pixekls have to be above. Defaults to 2.
         grow_low_island_size (int, optional): The minimum number of pixels an island should be for it to be considered valid. Defaults to 512.
-        region_mask (Optional[np.ndarray], optional): Whether some region should be masked out before the island size constraint is applied. Defaults to None.
+        region_mask (NDArray[np.bool] | None, optional): Whether some region should be masked out before the island size constraint is applied. Defaults to None.
 
     Returns:
-        np.ndarray: The derived mask of objects with low-surface brightness
+        NDArray[np.bool]: The derived mask of objects with low-surface brightness
     """
     # TODO: The `grow_low_island_size` should be represented in solid angle relative to the restoring beam
 
@@ -475,7 +468,7 @@ def grow_low_snr_mask(
     logger.info(
         f"Growing mask for low surface brightness using {grow_low_snr=} {grow_low_island_size=}"
     )
-    low_snr_mask = signal > grow_low_snr
+    low_snr_mask: NDArray[np.bool] = signal > grow_low_snr
     low_snr_mask = scipy_binary_dilation(
         input=low_snr_mask, iterations=2, structure=np.ones((3, 3))
     )
@@ -500,9 +493,9 @@ def grow_low_snr_mask(
 
 
 class SkewResult(NamedTuple):
-    positive_pixel_frac: np.ndarray
+    positive_pixel_frac: NDArray[np.floating]
     """The fraction of positive pixels in a boxcar function"""
-    skew_mask: np.ndarray
+    skew_mask: NDArray[np.bool]
     """Mask of pixel positions indicating which positions failed the skew test"""
     box_size: int
     """Size of the boxcar window applies"""
@@ -511,8 +504,8 @@ class SkewResult(NamedTuple):
 
 
 def create_boxcar_skew_mask(
-    image: np.ndarray, skew_delta: float, box_size: int
-) -> np.ndarray:
+    image: NDArray[np.floating], skew_delta: float, box_size: int
+) -> SkewResult:
     assert 0.0 < skew_delta < 0.5, f"{skew_delta=}, but should be 0.0 to 0.5"
     assert len(image.shape) == 2, (
         f"Expected two dimensions, got image shape of {image.shape}"
@@ -541,38 +534,51 @@ def create_boxcar_skew_mask(
 
 
 def _minimum_absolute_clip(
-    image: np.ndarray, increase_factor: float = 2.0, box_size: int = 100
-) -> np.ndarray:
+    image: NDArray[np.floating], increase_factor: float = 2.0, box_size: int = 100
+) -> NDArray[np.bool]:
     """Given an input image or signal array, construct a simple image mask by applying a
     rolling boxcar minimum filter, and then selecting pixels above a cut of
     the absolute value value scaled by `increase_factor`. This is a pixel-wise operation.
 
     Args:
-        image (np.ndarray): The input array to consider
+        image (NDArray[np.floating]): The input array to consider
         increase_factor (float, optional): How large to scale the absolute minimum by. Defaults to 2.0.
         box_size (int, optional): Size of the rolling boxcar minimum filtr. Defaults to 100.
 
     Returns:
-        np.ndarray: The mask of pixels above the locally varying threshold
+        NDArray[np.bool]: The mask of pixels above the locally varying threshold
     """
     logger.info(f"Minimum absolute clip, {increase_factor=} {box_size=}")
-    rolling_box_min = minimum_filter(image, box_size, mode="wrap")
+    rolling_box_min: NDArray[np.floating] = minimum_filter(image, box_size, mode="wrap")
 
-    return image > (increase_factor * np.abs(rolling_box_min))
-    # NOTE: This used to attempt to select pixels should that belong to an island of positive pixels with a box that was too small
-    # | (
-    #     (image > 0.0) & (rolling_box_min > 0.0)
-    # )
+    mac_mask: NDArray[np.bool] = image > (increase_factor * np.abs(rolling_box_min))
+    return mac_mask
 
 
 def _adaptive_minimum_absolute_clip(
-    image: np.ndarray,
+    image: NDArray[np.floating],
     increase_factor: float = 2.0,
     box_size: int = 100,
     adaptive_max_depth: int = 3,
     adaptive_box_step: float = 2.0,
     adaptive_skew_delta: float = 0.2,
-) -> np.ndarray:
+) -> NDArray[np.bool]:
+    """Derive the minimum absolute clip where the box size is adaptively scaled
+    if an excess of positive pixels is detected towards some direction. Should a
+    set of pixels fail the skewness test then a larger box is used and the MAC
+    from that larger box is used.
+
+    Args:
+        image (NDArray[np.floating]): The input image to compute the adaptive MAC against
+        increase_factor (float, optional): The factor to increase minimum absolute value by before applying the clip. Defaults to 2.0.
+        box_size (int, optional): The size of the box in pixels. Defaults to 100.
+        adaptive_max_depth (int, optional): The maximum number of times the box can be enlarged. Defaults to 3.
+        adaptive_box_step (float, optional): The factor the box is increased by for pixels that failed the skewness test. Defaults to 2.0.
+        adaptive_skew_delta (float, optional): The deviation away from 0.5 that is allowed for positive / (positive + negative) before a region is considered skewed. Defaults to 0.2.
+
+    Returns:
+        NDArray[np.bool]: The final mask
+    """
     logger.info(
         f"Using adaptive minimum absolute clip with {box_size=} {adaptive_skew_delta=}"
     )
@@ -596,17 +602,18 @@ def _adaptive_minimum_absolute_clip(
 
         min_value[skew_results.skew_mask] = _min_value[skew_results.skew_mask]
 
-    return image > (np.abs(min_value) * increase_factor)
+    mac_mask: NDArray[np.bool] = image > (np.abs(min_value) * increase_factor)
+    return mac_mask
 
 
 def minimum_absolute_clip(
-    image: np.ndarray,
+    image: NDArray[np.floating],
     increase_factor: float = 2.0,
     box_size: int = 100,
     adaptive_max_depth: int | None = None,
     adaptive_box_step: float = 2.0,
     adaptive_skew_delta: float = 0.2,
-) -> np.ndarray:
+) -> NDArray[np.bool]:
     """Implements minimum absolute clip method. A minimum filter of a particular
     boxc size is applied to the input image. The absolute of the output is taken
     and increased by a guard factor, which forms the clipping level used to construct
@@ -628,15 +635,15 @@ def minimum_absolute_clip(
     Should there be too many positive pixels in a region it is likely there is an
 
     Args:
-        image (np.ndarray): Image to create a mask for
+        image (NDArray[np.floating]): Image to create a mask for
         increase_factor (float, optional): The guard factor used to inflate the absolute of the minimum filter. Defaults to 2.0.
         box_size (int, optional): Size of the box car of the minimum filter. Defaults to 100.
-        adaptive_max_depth (Optional[int], optional): The maximum number of rounds that the adaptive mode is allowed to perform when rescaling boxcar results in certain directions. Defaults to None.
+        adaptive_max_depth (int | None, optional): The maximum number of rounds that the adaptive mode is allowed to perform when rescaling boxcar results in certain directions. Defaults to None.
         adaptive_box_step (float, optional): A multiplicative factor to increase the boxcar size by each round. Defaults to 2.0.
         adaptive_skew_delta (float, optional): Minimum deviation from 0.5 that needs to be met to classify a region as skewed. Defaults to 0.2.
 
     Returns:
-        np.ndarray: Final mask
+        NDArray[np.bool]: Final mask
     """
 
     if adaptive_max_depth is None:
@@ -657,9 +664,10 @@ def minimum_absolute_clip(
 
 
 def _verify_set_positive_seed_clip(
-    positive_seed_clip: float, signal: np.ndarray
+    positive_seed_clip: float, signal: NDArray[np.floating]
 ) -> float:
-    """Ensure that the positive seed clip is handled appropriately"""
+    """Ensure that the positive seed clip is handled appropriately. If it
+    is too high then it is set to be 90-percent of the maximum signal"""
     max_signal = np.max(signal)
     if max_signal < positive_seed_clip:
         logger.critical(
@@ -672,9 +680,9 @@ def _verify_set_positive_seed_clip(
 
 
 def reverse_negative_flood_fill(
-    base_image: np.ndarray,
+    base_image: NDArray[np.floating],
     masking_options: MaskingOptions,
-) -> np.ndarray:
+) -> NDArray[np.bool]:
     """Attempt to:
 
     * seed masks around bright regions of an image and grow them to lower significance thresholds
@@ -704,12 +712,11 @@ def reverse_negative_flood_fill(
     parameters.
 
     Args:
-        base_image (np.ndarray): The base image or signal map that is used throughout the fill procedure.
+        base_image (NDArray[np.floating]): The base image or signal map that is used throughout the fill procedure.
         masking_options (MaskingOptions): Options to carry out masking.
-        pixels_per_beam (Optional[float], optional): The number of pixels that cover a beam. Defaults to None.
 
     Returns:
-        np.ndarray: Mask of the pixels to clean
+        NDArray[np.bool]: Mask of the pixels to clean
     """
 
     logger.info("Will be reversing flood filling")
@@ -744,7 +751,7 @@ def reverse_negative_flood_fill(
         positive_mask = base_image >= positive_seed_clip
         flood_floor_mask = base_image > masking_options.flood_fill_positive_flood_clip
 
-    positive_dilated_mask = scipy_binary_dilation(
+    positive_dilated_mask: NDArray[np.bool] = scipy_binary_dilation(
         input=positive_mask,
         mask=flood_floor_mask,
         iterations=1000,
@@ -759,14 +766,15 @@ def reverse_negative_flood_fill(
         )
         positive_dilated_mask[low_snr_mask] = True
 
-    return positive_dilated_mask.astype(np.int32)
+    return positive_dilated_mask
 
 
 def _create_signal_from_rmsbkg(
-    image: Path | np.ndarray,
-    rms: Path | np.ndarray,
-    bkg: Path | np.ndarray,
-) -> np.ndarray:
+    image: Path | NDArray[np.floating],
+    rms: Path | NDArray[np.floating],
+    bkg: Path | NDArray[np.floating],
+) -> NDArray[np.floating]:
+    """Form the signal image from the rms and background"""
     logger.info("Creating signal image")
 
     if isinstance(image, Path):
@@ -783,6 +791,9 @@ def _create_signal_from_rmsbkg(
             logger.info(f"Loading {bkg=}")
             bkg = in_fits[0].data
 
+    assert isinstance(bkg, np.ndarray), (
+        f"Expected the background to be a numpy array by now, instead have {type(bkg)}"
+    )
     logger.info("Subtracting background")
     image -= bkg
 
@@ -791,6 +802,9 @@ def _create_signal_from_rmsbkg(
             logger.info(f"Loading {rms=}")
             rms = in_fits[0].data
 
+    assert isinstance(rms, np.ndarray), (
+        f"Expected the rms to be a numpy array by now, instead have {type(rms)}"
+    )
     logger.info("Dividing by rms")
     image /= rms
 
@@ -830,8 +844,8 @@ def create_snr_mask_from_fits(
     Args:
         fits_image_path (Path): Path to the FITS file containing an image
         masking_options (MaskingOptions): Configurable on the masking operation procedure.
-        fits_rms_path (Optional[Path], optional): Path to the FITS file with an RMS image corresponding to ``fits_image_path``. Defaults to None.
-        fits_bkg_path (Optional[Path], optional): Path to the FITS file with an background image corresponding to ``fits_image_path``. Defaults to None.
+        fits_rms_path (Path | None, optional): Path to the FITS file with an RMS image corresponding to ``fits_image_path``. Defaults to None.
+        fits_bkg_path (Path | None, optional): Path to the FITS file with an background image corresponding to ``fits_image_path``. Defaults to None.
         create_signal_fits (bool, optional): Create an output signal map. Defaults to False.
         overwrite (bool): Passed to `fits.writeto`, and will overwrite files should they exist. Defaults to True.
 
@@ -873,8 +887,6 @@ def create_snr_mask_from_fits(
                 overwrite=overwrite,
             )
 
-    pixels_per_beam = get_pixels_per_beam(fits_path=fits_image_path)
-
     # Following the help in wsclean:
     # WSClean accepts masks in CASA format and in fits file format. A mask is a
     # normal, single polarization image file, where all zero values are interpreted
@@ -887,15 +899,14 @@ def create_snr_mask_from_fits(
         mask_data = reverse_negative_flood_fill(
             base_image=np.squeeze(signal_data),
             masking_options=masking_options,
-            pixels_per_beam=pixels_per_beam,
         )
         mask_data = mask_data.reshape(signal_data.shape)
     else:
         logger.info(f"Clipping using a {masking_options.base_snr_clip=}")
-        mask_data = (signal_data > masking_options.base_snr_clip).astype(np.int32)
+        mask_data = (signal_data > masking_options.base_snr_clip).astype(np.floating)
 
     if masking_options.beam_shape_erode:
-        mask_data = beam_shape_erode(
+        mask_data = beam_shape_erode(  # type: ignore[assignment]
             mask=mask_data,
             fits_header=fits_header,
             minimum_response=masking_options.beam_shape_erode_minimum_response,
@@ -926,7 +937,7 @@ def convolve_image_by_scale(
 
     >> fwhm = 2.355 * sigma
 
-    Also not that the initial stage of this function is to first apply an 'open' filter,
+    Also note that the initial stage of this function is to first apply an 'open' filter,
     which preprocessed the image by using a set of minimum and maximum operations. This
     attempts to separate out emission at different scales before subsequent convolution.
     This feels counter productive, but is done to avoid confusion type effocts with
@@ -960,14 +971,15 @@ def convolve_image_by_scale(
     x -= x[-1] / 2
     y -= y[-1] / 2
 
-    # Form the 2d image gride here, ya sea dog
+    # Form the 2d image grid here, ya sea dog
     distance_squared = x[None, :] ** 2 + y[:, None] ** 2
     kernel = np.exp(-(distance_squared / (2 * sigma**2)))
 
     # Make sure the ships match dimensions
     kernel = kernel.reshape(image_data.shape[:-2] + kernel.shape)
     logger.info(f"{image_data.shape=} {kernel.shape=}")
-    return fftconvolve(image_data, kernel, mode="same")
+    image_convolved: NDArray[np.floating] = fftconvolve(image_data, kernel, mode="same")
+    return image_convolved
 
 
 # TODO: This needs some specific unit tests
@@ -1018,13 +1030,6 @@ def create_convolved_erosion_mask(
                 image_data=convolved_image, scale=scale
             )
 
-            # fits.writeto(
-            #     fits_image_path.with_suffix(f".minmaxcon-{scale}.fits"),
-            #     data=convolved_image,
-            #     header=fits_header,
-            #     overwrite=True,
-            # )
-
         box_size = masking_options.flood_fill_use_mac_box_size + scale
 
         positive_mask = minimum_absolute_clip(
@@ -1060,8 +1065,6 @@ def create_convolved_erosion_mask(
             iterations=1000,
             structure=np.ones((3, 3)),
         )
-
-        # output_mask[positive_dilated_mask] += 2**index
 
         scale_mask = (
             create_multi_scale_erosion(
@@ -1135,7 +1138,7 @@ def get_parser() -> ArgumentParser:
     return parser
 
 
-def cli():
+def cli() -> None:
     parser = get_parser()
 
     args = parser.parse_args()
