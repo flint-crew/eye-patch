@@ -903,7 +903,7 @@ def create_snr_mask_from_fits(
         mask_data = mask_data.reshape(signal_data.shape)
     else:
         logger.info(f"Clipping using a {masking_options.base_snr_clip=}")
-        mask_data = (signal_data > masking_options.base_snr_clip).astype(np.floating)
+        mask_data = (signal_data > masking_options.base_snr_clip).astype(float)
 
     if masking_options.beam_shape_erode:
         mask_data = beam_shape_erode(  # type: ignore[assignment]
