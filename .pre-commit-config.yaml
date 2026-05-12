@@ -57,12 +57,9 @@ repos:
         files: eye_patch|tests
         args: ["--ignore-missing-imports"]
         additional_dependencies:
-          - pytest
-          - astropy
           - numpy
-          - radio-beam
           - capn-crunch
-          - reproject
+          - pytest-stub
 
   - repo: https://github.com/codespell-project/codespell
     rev: "v2.4.2"
