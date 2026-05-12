@@ -53,6 +53,7 @@ repos:
     rev: "v2.0.0"
     hooks:
       - id: mypy
+        language_version: python3.12
         files: eye_patch|tests
         args: ["--ignore-missing-imports"]
         additional_dependencies:
