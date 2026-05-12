@@ -59,7 +59,7 @@ repos:
         additional_dependencies:
           - pytest
           - astropy
-          - types-numpy
+          - numpy
           - radio-beam
           - capn-crunch
           - reproject
