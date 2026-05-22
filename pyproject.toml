@@ -166,3 +166,6 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["T20"]
+
+[tool.codespell]
+skip = ["uv.lock"]

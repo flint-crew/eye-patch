@@ -23,9 +23,12 @@
 
 The pirate mask!
 
-A python library and CLI tools for creating masks to assist deconvolution of interferometric data.
+A python library and CLI tools for creating masks to assist deconvolution of
+interferometric data.
 
-This library was originally the masking module of the [Flint](https://github.com/flint-crew/flint) pipeline, but has now been separated out for flexible use.
+This library was originally the masking module of the
+[Flint](https://github.com/flint-crew/flint) pipeline, but has now been
+separated out for flexible use.
 
 <img width="256" height="256" alt="image" src="https://github.com/user-attachments/assets/2a8e442c-036b-4d78-8370-180c02588c95" />
 
@@ -57,15 +60,15 @@ git clone https://github.com/flint-crew/eye-patch.git
 cd flint
 pip install -e .
 ```
-We highly recommend using [uv](https://docs.astral.sh/uv/) for speedy installations.
-Reproducible builds can be created using `uv sync`:
+
+We highly recommend using [uv](https://docs.astral.sh/uv/) for speedy
+installations. Reproducible builds can be created using `uv sync`:
 
 ```bash
 git clone https://github.com/flint-crew/eye-patch.git
 uv venv
 uv sync
 ```
-
 
 ## Contributions
 
