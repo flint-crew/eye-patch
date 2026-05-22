@@ -7,9 +7,6 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 from __future__ import annotations
 
-import shutil
-from pathlib import Path
-
 import eye_patch
 
 project = "eye-patch"
