@@ -963,6 +963,11 @@ def convolve_image_by_scale(
     logger.info(f"Generating gaussian kernel for {scale=} {fwhm=:.3f} {sigma=:.3f}")
 
     pix_sigma = int(sigma * 5)
+    if pix_sigma < 1:
+        logger.warning(
+            f"{scale=} is too small to form a appropriately sized gaussian kernel. Setting its {pix_sigma=} to 1."
+        )
+        pix_sigma = 1
     x = np.linspace(0, pix_sigma, pix_sigma)
     y = np.linspace(0, pix_sigma, pix_sigma)
 
