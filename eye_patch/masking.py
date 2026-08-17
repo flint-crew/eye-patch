@@ -964,10 +964,11 @@ def convolve_image_by_scale(
 
     pix_sigma = int(sigma * 5)
     if pix_sigma < 1:
-        logger.warning(
-            f"{scale=} is too small to form a appropriately sized gaussian kernel. Setting its {pix_sigma=} to 1."
-        )
-        pix_sigma = 1
+        # linspace can only take integer inputs, and if sigma is too small then this array comes
+        # out as length zero.
+        msg = f"{scale=} is too small and an appropriately sized kernel can not be formed. Consider removing it. "
+        raise ValueError(msg)
+
     x = np.linspace(0, pix_sigma, pix_sigma)
     y = np.linspace(0, pix_sigma, pix_sigma)
 
