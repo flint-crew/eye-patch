@@ -4,7 +4,6 @@ thought being towards FITS images.
 
 from __future__ import annotations
 
-import logging
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import NamedTuple, TypeAlias
@@ -26,6 +25,7 @@ from scipy.ndimage import (
 from scipy.ndimage import binary_fill_holes, label, maximum_filter, minimum_filter
 from scipy.signal import fftconvolve
 
+from eye_patch.logging import logger
 from eye_patch.naming import FITSMaskNames, create_fits_mask_names
 
 # Add explicit export so mypy on tests is ok
@@ -36,8 +36,6 @@ __all__ = ["create_options_from_parser"]
 # The masks can be represented as either booleans or floats. If booleans they get typecase to floats
 # during fits file creation.
 MaskLike: TypeAlias = NDArray[np.floating]
-
-logger = logging.getLogger("__name__")
 
 
 class MaskingOptions(BaseOptions):
@@ -916,7 +914,7 @@ def create_snr_mask_from_fits(
     logger.info(f"Writing {mask_names.mask_fits}")
     fits.writeto(
         filename=mask_names.mask_fits,
-        data=mask_data,
+        data=mask_data.astype(np.float32),
         header=fits_header,
         overwrite=overwrite,
     )
