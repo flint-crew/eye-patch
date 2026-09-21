@@ -32,7 +32,7 @@ class CustomFormatter(logging.Formatter):
         logging.CRITICAL: f"{bold_red}%(levelname)s{reset} {format_str}",
     }
 
-    def format(self, record):
+    def format(self, record: logging.LogRecord) -> str:
         log_fmt = self.FORMATS.get(record.levelno)
         formatter = logging.Formatter(log_fmt, "%Y-%m-%d %H:%M:%S")
         return formatter.format(record)
