@@ -491,6 +491,26 @@ def test_fits_masking(fits_dir):
     assert valid == np.prod(SHAPE)
 
 
+def test_fits_masking_flood_fill_writes_float_mask(fits_dir):
+    """The flood fill path builds its mask as a bool array, which ``fits.writeto``
+    rejects. Reported by Beth via #14, and not caught earlier because every other
+    mask test runs with ``flood_fill=False``."""
+    masking_options = MaskingOptions(flood_fill=True)
+    names = create_snr_mask_from_fits(
+        fits_image_path=fits_dir / "image.fits",
+        fits_rms_path=fits_dir / "rms.fits",
+        fits_bkg_path=fits_dir / "bkg.fits",
+        masking_options=masking_options,
+    )
+
+    assert isinstance(names, FITSMaskNames)
+    assert names.mask_fits.exists()
+
+    mask_data = fits.getdata(names.mask_fits)
+    assert mask_data.dtype.kind == "f", "A bool mask cannot be written to FITS"
+    assert np.sum(mask_data) == np.prod(SHAPE)
+
+
 def test_fits_masking_with_signal(fits_dir):
     masking_options = MaskingOptions(flood_fill=False)
     names = create_snr_mask_from_fits(
