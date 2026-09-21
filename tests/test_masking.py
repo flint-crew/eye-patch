@@ -492,10 +492,10 @@ def test_fits_masking(fits_dir):
 
 
 @pytest.fixture
-def beam_fits_dir(tmpdir, beam_fits_header):
+def beam_fits_dir(tmp_path: Path, beam_fits_header: fits.Header) -> Path:
     """As ``fits_dir``, but the image carries the beam keywords that
     ``beam_shape_erode`` needs to build its kernel."""
-    beam_fits_dir = Path(tmpdir) / "beam_fits"
+    beam_fits_dir = tmp_path / "beam_fits"
     beam_fits_dir.mkdir()
 
     fits.writeto(beam_fits_dir / "image.fits", np.ones(SHAPE), header=beam_fits_header)
@@ -505,7 +505,7 @@ def beam_fits_dir(tmpdir, beam_fits_header):
     return beam_fits_dir
 
 
-def test_fits_masking_flood_fill_with_beam_erode(beam_fits_dir):
+def test_fits_masking_flood_fill_with_beam_erode(beam_fits_dir: Path) -> None:
     """The flood filled mask reaches ``beam_shape_erode``, which types its input
     as floats. This is the path the bool mask was travelling down."""
     masking_options = MaskingOptions(flood_fill=True, beam_shape_erode=True)
@@ -523,7 +523,7 @@ def test_fits_masking_flood_fill_with_beam_erode(beam_fits_dir):
     assert mask_data.dtype.kind == "f", "A bool mask cannot be written to FITS"
 
 
-def test_fits_masking_flood_fill_writes_float_mask(fits_dir):
+def test_fits_masking_flood_fill_writes_float_mask(fits_dir: Path) -> None:
     """The flood fill path builds its mask as a bool array, which ``fits.writeto``
     rejects. Reported by Beth via #14, and not caught earlier because every other
     mask test runs with ``flood_fill=False``."""
