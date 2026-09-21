@@ -299,7 +299,9 @@ def beam_shape_erode(
             scales (list[int] | tuple[int, ...] | None, optional): Defines the scales that are being used during multi-scale clean. Perform the beam erosion at each of these scales. Defaults to None.
 
         Returns:
-    MaskLike: The eroded beam shape. If a no/single scale provide it is a bool return, otherwise int32.
+    MaskLike: The eroded beam shape. For no/single scale the dtype of ``mask`` is
+        preserved; for multiple scales a float64 bitmask is returned, where the
+        n'th scale is stored as the n'th bit.
     """
 
     if not all(key in fits_header for key in ["BMAJ", "BMIN", "BPA"]):
