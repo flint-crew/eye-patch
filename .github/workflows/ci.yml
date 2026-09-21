@@ -25,9 +25,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      # 3.11 is installed alongside so the mypy hook can pin itself to it
-      # (see language_version in .pre-commit-config.yaml). The last entry
-      # stays the default interpreter that pre-commit itself runs on.
       - uses: actions/setup-python@v6
         with:
           python-version: |

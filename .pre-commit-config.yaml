@@ -55,10 +55,6 @@ repos:
       - id: mypy
         files: eye_patch|tests
         args: ["--ignore-missing-imports"]
-        # Pinned to the project's minimum supported Python. numpy 2.5 requires
-        # >=3.12 and its stubs use PEP 695 `type` statements, which mypy will
-        # not parse while targeting 3.11. Resolving numpy on 3.11 keeps us on
-        # the 2.4.x stubs, which do parse.
         language_version: python3.11
         additional_dependencies:
           - numpy
