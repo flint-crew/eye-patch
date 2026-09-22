@@ -301,7 +301,9 @@ def beam_shape_erode(
             scales (list[int] | tuple[int, ...] | None, optional): Defines the scales that are being used during multi-scale clean. Perform the beam erosion at each of these scales. Defaults to None.
 
         Returns:
-    MaskLike: The eroded beam shape. If a no/single scale provide it is a bool return, otherwise int32.
+    MaskLike: The eroded beam shape. For no/single scale the dtype of ``mask`` is
+        preserved; for multiple scales a float64 bitmask is returned, where the
+        n'th scale is stored as the n'th bit.
     """
 
     if not all(key in fits_header for key in ["BMAJ", "BMIN", "BPA"]):
@@ -899,14 +901,14 @@ def create_snr_mask_from_fits(
         mask_data = reverse_negative_flood_fill(
             base_image=np.squeeze(signal_data),
             masking_options=masking_options,
-        )
+        ).astype(np.float32)
         mask_data = mask_data.reshape(signal_data.shape)
     else:
         logger.info(f"Clipping using a {masking_options.base_snr_clip=}")
         mask_data = (signal_data > masking_options.base_snr_clip).astype(float)
 
     if masking_options.beam_shape_erode:
-        mask_data = beam_shape_erode(  # type: ignore[assignment]
+        mask_data = beam_shape_erode(
             mask=mask_data,
             fits_header=fits_header,
             minimum_response=masking_options.beam_shape_erode_minimum_response,
