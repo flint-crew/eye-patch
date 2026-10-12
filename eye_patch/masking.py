@@ -37,7 +37,7 @@ __all__ = ["create_options_from_parser"]
 # during fits file creation.
 MaskLike: TypeAlias = NDArray[np.floating]
 
-logger = logging.getLogger("__name__")
+logger = logging.getLogger("eye-patch")
 
 
 class MaskingOptions(BaseOptions):
