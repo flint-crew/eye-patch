@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +12,7 @@ from astropy.wcs import WCS
 from scipy.ndimage import binary_dilation, label, minimum_filter
 from scipy.signal import fftconvolve
 
+from eye_patch.logging import CustomFormatter, logger
 from eye_patch.masking import (
     MaskingOptions,
     _create_signal_from_rmsbkg,
@@ -17,6 +21,7 @@ from eye_patch.masking import (
     _need_to_make_signal,
     _verify_set_positive_seed_clip,
     beam_shape_erode,
+    cli,
     convolve_image_by_scale,
     create_beam_mask_kernel,
     create_boxcar_skew_mask,
@@ -28,6 +33,7 @@ from eye_patch.masking import (
     grow_low_snr_mask,
     minimum_absolute_clip,
     minimum_absolute_clip_threshold,
+    reverse_negative_flood_fill,
 )
 from eye_patch.naming import FITSMaskNames
 
@@ -707,7 +713,7 @@ def test_beam_shape_erode_is_not_shifted(beam_fits_header: fits.Header) -> None:
         mask=mask, fits_header=beam_fits_header, scales=scales
     ).astype(int)
 
-    for index, _scale in enumerate(scales):
+    for index in range(len(scales)):
         scale_mask = (eroded_mask >> index) & 1
         assert np.sum(scale_mask) > 0
         assert np.allclose(_disk_centroid(image=scale_mask), (128.0, 128.0))
@@ -778,6 +784,135 @@ def test_extract_beam_mask_from_mosaic_outside_footprint(tmp_path: Path) -> None
     mask_data = fits.getdata(names.mask_fits)
     assert set(np.unique(mask_data)) == {0, 1}
     assert 0.3 < np.mean(mask_data) < 0.7
+
+
+@pytest.fixture
+def mosaic_scale_mask_dir(tmp_path: Path) -> Path:
+    """A per-scale mosaic mask, and a template image with half of its pixels
+    outside of the mosaic. The template's right half covers the mosaic's left half."""
+    mosaic_scale_mask = np.zeros(SHAPE, dtype=np.float32)
+    mosaic_scale_mask[:, :50] = 1
+    mosaic_scale_mask[20:80, 10:40] = 3
+    mosaic_scale_mask[40:60, 20:30] = 7
+    fits.writeto(
+        tmp_path / "mosaic.scalemask.fits",
+        mosaic_scale_mask,
+        header=_celestial_header(crpix=(50, 50)),
+    )
+    fits.writeto(
+        tmp_path / "beam.fits",
+        np.zeros(SHAPE),
+        header=_celestial_header(crpix=(100, 50)),
+    )
+    return tmp_path
+
+
+def test_extract_beam_scale_mask_from_mosaic(mosaic_scale_mask_dir: Path) -> None:
+    """A per-scale mask should be extracted without clipping its bitmapped values"""
+    names = extract_beam_mask_from_mosaic(
+        fits_beam_image_path=mosaic_scale_mask_dir / "beam.fits",
+        fits_mosaic_mask_names=FITSMaskNames(
+            scale_mask_fits=mosaic_scale_mask_dir / "mosaic.scalemask.fits"
+        ),
+    )
+
+    assert names.mask_fits is None
+    assert names.scale_mask_fits is not None
+    assert names.scale_mask_fits == mosaic_scale_mask_dir / "beam.scalemask.fits"
+
+    scale_mask_data = fits.getdata(names.scale_mask_fits)
+    assert set(np.unique(scale_mask_data)) == {0.0, 1.0, 3.0, 7.0}
+    # Pixels outside of the mosaic footprint
+    assert np.all(scale_mask_data[:, :45] == 0)
+
+
+def test_extract_beam_mask_from_mosaic_without_masks(
+    mosaic_scale_mask_dir: Path,
+) -> None:
+    """There needs to be at least one mask to extract from"""
+    with pytest.raises(ValueError, match="mask_fits or scale_mask_fits"):
+        extract_beam_mask_from_mosaic(
+            fits_beam_image_path=mosaic_scale_mask_dir / "beam.fits",
+            fits_mosaic_mask_names=FITSMaskNames(),
+        )
+
+
+def test_cli_extract_beam_scale_mask(
+    mosaic_scale_mask_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The CLI treats a mosaic ending in .scalemask.fits as a per-scale mask"""
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "eye-patch",
+            "extractmask",
+            str(mosaic_scale_mask_dir / "beam.fits"),
+            str(mosaic_scale_mask_dir / "mosaic.scalemask.fits"),
+        ],
+    )
+    cli()
+
+    assert not (mosaic_scale_mask_dir / "beam.mask.fits").exists()
+    scale_mask_data = fits.getdata(mosaic_scale_mask_dir / "beam.scalemask.fits")
+    assert np.max(scale_mask_data) == 7.0
+
+
+def test_reverse_negative_flood_fill_mac_grows_low_snr_islands() -> None:
+    """With the minimum absolute clip the image is not a signal map. Low SNR islands
+    should be found using the clip as an increase factor of the same clipping level,
+    rather than comparing a significance to the raw pixel values."""
+    noise = 1e-4  # An image in Jy/beam rather than a signal map
+    yy, xx = np.mgrid[:400, :400]
+    diffuse = ((xx - 200) ** 2 + (yy - 200) ** 2) <= 60**2
+    image = (
+        np.random.default_rng(3).normal(scale=noise, size=(400, 400))
+        + diffuse * 2.5 * noise
+    )
+
+    without_growth, with_growth = (
+        reverse_negative_flood_fill(
+            base_image=image,
+            masking_options=MaskingOptions(
+                flood_fill=True,
+                flood_fill_use_mac=True,
+                grow_low_snr_island=grow_low_snr_island,
+                grow_low_snr_island_clip=0.5,
+            ),
+        )
+        for grow_low_snr_island in (False, True)
+    )
+
+    assert np.mean(without_growth[diffuse]) < 0.1
+    assert np.mean(with_growth[diffuse]) > 0.95
+    assert np.mean(with_growth[~diffuse]) < 0.02
+
+
+def test_logger_is_configured(caplog: pytest.LogCaptureFixture) -> None:
+    """The eye-patch logger has its own handler so its messages are visible when
+    used by other packages (e.g. flint in a dask worker), and is used by masking"""
+    assert logger.name == "eye-patch"
+    assert logger.level == logging.INFO
+    assert any(
+        isinstance(handler.formatter, CustomFormatter) for handler in logger.handlers
+    )
+
+    with caplog.at_level(logging.INFO, logger="eye-patch"):
+        minimum_absolute_clip(image=np.ones(SHAPE), box_size=10)
+    assert any(record.name == "eye-patch" for record in caplog.records)
+
+
+def test_masking_import_configures_logger() -> None:
+    """Importing only the masking module, as another package would, should attach
+    the eye-patch handler. A fresh interpreter is used as this test module already
+    imports the logging module directly."""
+    code = (
+        "import logging, eye_patch.masking; "
+        "eye_patch_logger = logging.getLogger('eye-patch'); "
+        "assert eye_patch_logger.level == logging.INFO; "
+        "assert eye_patch_logger.handlers"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)
 
 
 def test_fits_masking_mac_without_flood_fill_uses_signal(fits_dir: Path) -> None:

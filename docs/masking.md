@@ -121,6 +121,15 @@ Activating the flood fill procedure is 'opt in' and activated via
 `MaskingOptions.flood_fill`. Further, the {math}`\mathrm{MAC}` statistic is only
 exposed when the flood fill is enabled.
 
+Islands of faint and diffuse emission that are never seeded may also be added
+via `MaskingOptions.grow_low_snr_island`. Pixels above
+`MaskingOptions.grow_low_snr_island_clip` are joined together, and islands made
+up of at least `MaskingOptions.grow_low_snr_island_size` pixels are added to the
+mask. When the {math}`\mathrm{MAC}` statistic is used the clip is an increase
+factor of the same clipping level used to seed and grow islands. For a 75 pixel
+box over noise this clipping level is around {math}`3.7\sigma`, so a factor near
+`0.5` is comparable to a {math}`1.75\sigma` clip of a signal map.
+
 <!-- TODO: Need to include some other image here -->
 
 ## Eroding output islands

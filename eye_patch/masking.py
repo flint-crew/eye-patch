@@ -4,7 +4,6 @@ thought being towards FITS images.
 
 from __future__ import annotations
 
-import logging
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import NamedTuple, TypeAlias
@@ -32,6 +31,7 @@ from scipy.ndimage import (
 )
 from scipy.signal import fftconvolve
 
+from eye_patch.logging import logger
 from eye_patch.naming import FITSMaskNames, create_fits_mask_names
 
 # Add explicit export so mypy on tests is ok
@@ -42,8 +42,6 @@ __all__ = ["create_options_from_parser"]
 # The masks can be represented as either booleans or floats. If booleans they get typecase to floats
 # during fits file creation.
 MaskLike: TypeAlias = NDArray[np.floating]
-
-logger = logging.getLogger("eye-patch")
 
 
 class MaskingOptions(BaseOptions):
@@ -61,7 +59,7 @@ class MaskingOptions(BaseOptions):
     flood_fill_positive_flood_clip: float = 1.5
     """Clipping level used to grow seeded islands down to"""
     flood_fill_use_mac: bool = False
-    """If True, the clipping levels are used as the `increase_factor` when using a minimum absolute clip"""
+    """If True, the clipping levels (including ``grow_low_snr_island_clip``) are used as the `increase_factor` when using a minimum absolute clip"""
     flood_fill_use_mac_box_size: int = 75
     """The size of the mac box size should mac be used"""
     flood_fill_use_mac_adaptive_step_factor: float = 2.0
@@ -73,7 +71,7 @@ class MaskingOptions(BaseOptions):
     grow_low_snr_island: bool = False
     """Whether to attempt to grow a mask to capture islands of low SNR (e.g. diffuse emission)"""
     grow_low_snr_island_clip: float = 1.75
-    """The minimum significance levels of pixels to be to seed low SNR islands for consideration"""
+    """The minimum significance levels of pixels to be to seed low SNR islands for consideration. When ``flood_fill_use_mac`` is True this is the `increase_factor` of the minimum absolute clip instead"""
     grow_low_snr_island_size: int = 768
     """The number of pixels an island has to be for it to be accepted"""
     beam_shape_erode: bool = False
@@ -351,6 +349,39 @@ def beam_shape_erode(
     return out_mask
 
 
+def _reproject_mask_image(
+    mosaic_mask_path: Path, header: fits.Header, shape: tuple[int, ...]
+) -> NDArray[np.floating]:
+    """Reproject a mask image onto the pixel grid of a header. Nearest neighbour
+    interpolation is used so that mask values, including bitmapped scales, are
+    preserved.
+
+    Args:
+        mosaic_mask_path (Path): The mask image to reproject
+        header (fits.Header): Header with the WCS of the output pixel grid
+        shape (tuple[int, ...]): The two-dimensional shape of the output pixel grid
+
+    Returns:
+        NDArray[np.floating]: The reprojected mask, which is zero outside of the mosaic footprint
+    """
+    logger.info(f"Will extract {shape} from {mosaic_mask_path}")
+    with fits.open(mosaic_mask_path) as mosaic_mask:
+        extract_image, _footprint = reproject_interp(
+            input_data=(
+                np.squeeze(mosaic_mask[0].data),
+                WCS(mosaic_mask[0].header).celestial,
+            ),
+            output_projection=WCS(header).celestial,
+            shape_out=shape,
+            order=0,
+        )
+
+    # Pixels outside the mosaic footprint are NaN, which would otherwise cast
+    # to a large non-zero integer and be treated as a cleanable region
+    reprojected_mask: NDArray[np.floating] = np.nan_to_num(extract_image, nan=0.0)
+    return reprojected_mask
+
+
 def extract_beam_mask_from_mosaic(
     fits_beam_image_path: Path,
     fits_mosaic_mask_names: FITSMaskNames,
@@ -358,7 +389,9 @@ def extract_beam_mask_from_mosaic(
 ) -> FITSMaskNames:
     """Extract a region based on an existing FITS image from a masked FITS
     image. Here a masked FITS image is intended to be one created by
-    ``create_snr_mask_from_fits``.
+    ``create_snr_mask_from_fits``. Both a ``mask_fits`` and a per-scale
+    ``scale_mask_fits`` are extracted should they be provided, with the
+    bitmapped values of the latter preserved.
 
     A simple cutout (e.g. ``CutOut2D``) might not work as intended, as
     when creating the field image (the intended use case here) might be
@@ -370,50 +403,62 @@ def extract_beam_mask_from_mosaic(
         fits_mosaic_mask_names (FITSMaskNames): The previously masked image
         overwrite (bool): Passed to `fits.writeto`, and will overwrite files should they exist. Defaults to True.
 
+    Raises:
+        ValueError: Raised when neither a ``mask_fits`` or ``scale_mask_fits`` is provided to extract from
+
     Returns:
-        FITSMaskNames: Container with the ``mask_fits`` of the extracted mask, which is named after ``fits_beam_image_path``
+        FITSMaskNames: Container with the extracted masks, which are named after ``fits_beam_image_path``. Masks that were not extracted are None.
     """
     # TODO: Ideally we can accept an arbitrary WCS, or read the wsclean docs to
     # try to construct it ourselves. The last thing that this pirate wants is
     # to run the imager in a dry-run type mode  mode purely for the WCS.
 
-    assert fits_mosaic_mask_names.mask_fits is not None, (
-        "Expected a mask FITS image to extract from"
-    )
+    if (
+        fits_mosaic_mask_names.mask_fits is None
+        and fits_mosaic_mask_names.scale_mask_fits is None
+    ):
+        msg = "Expected a mask_fits or scale_mask_fits FITS image to extract from"
+        raise ValueError(msg)
+
     mask_names = create_fits_mask_names(fits_image=fits_beam_image_path)
 
     with fits.open(fits_beam_image_path) as beam_image:
         header = beam_image[0].header
         beam_image_shape = beam_image[0].data.shape[-2:]
 
-    logger.info(
-        f"Will extract {beam_image_shape} from {fits_mosaic_mask_names.mask_fits}"
-    )
-
-    with fits.open(fits_mosaic_mask_names.mask_fits) as mosaic_mask:
-        logger.info("Extracting region")
-        extract_image, _footprint = reproject_interp(
-            input_data=(
-                np.squeeze(mosaic_mask[0].data),
-                WCS(mosaic_mask[0].header).celestial,
-            ),
-            output_projection=WCS(header).celestial,
-            shape_out=beam_image_shape,
-            order=0,
+    beam_mask_fits: Path | None = None
+    if fits_mosaic_mask_names.mask_fits is not None:
+        extract_image = _reproject_mask_image(
+            mosaic_mask_path=fits_mosaic_mask_names.mask_fits,
+            header=header,
+            shape=beam_image_shape,
         )
-    # Pixels outside the mosaic footprint are NaN, which would otherwise cast
-    # to a large non-zero integer and be treated as a cleanable region
-    logger.info("Clipping extract mask results (interpolation errors)")
-    extract_image = np.clip(np.nan_to_num(extract_image, nan=0.0), 0.0, 1.0)
+        logger.info("Clipping extract mask results (interpolation errors)")
+        fits.writeto(
+            filename=mask_names.mask_fits,
+            data=np.clip(extract_image, 0.0, 1.0).astype(np.int32),
+            header=header,
+            overwrite=overwrite,
+        )
+        beam_mask_fits = mask_names.mask_fits
 
-    fits.writeto(
-        filename=mask_names.mask_fits,
-        data=extract_image.astype(np.int32),
-        header=header,
-        overwrite=overwrite,
-    )
+    beam_scale_mask_fits: Path | None = None
+    if fits_mosaic_mask_names.scale_mask_fits is not None:
+        # No clipping, as the bitmapped value of each pixel encodes its scales
+        extract_scale_image = _reproject_mask_image(
+            mosaic_mask_path=fits_mosaic_mask_names.scale_mask_fits,
+            header=header,
+            shape=beam_image_shape,
+        )
+        fits.writeto(
+            filename=mask_names.scale_mask_fits,
+            data=extract_scale_image.astype(np.float32),
+            header=header,
+            overwrite=overwrite,
+        )
+        beam_scale_mask_fits = mask_names.scale_mask_fits
 
-    return FITSMaskNames(mask_fits=mask_names.mask_fits)
+    return FITSMaskNames(mask_fits=beam_mask_fits, scale_mask_fits=beam_scale_mask_fits)
 
 
 def _get_signal_image(
@@ -459,6 +504,43 @@ def _get_signal_image(
     return out_signal
 
 
+def _select_large_islands(
+    candidate_mask: NDArray[np.bool],
+    minimum_island_size: int,
+    region_mask: NDArray[np.bool] | None = None,
+) -> NDArray[np.bool]:
+    """Join nearby candidate pixels with a binary closing, and keep only the islands
+    that are made up of at least ``minimum_island_size`` pixels. This is used to find
+    regions of faint and diffuse emission that a pixel-wise clip would miss.
+
+    Args:
+        candidate_mask (NDArray[np.bool]): Pixels above some low significance level
+        minimum_island_size (int): The minimum number of pixels an island should be for it to be kept
+        region_mask (NDArray[np.bool] | None, optional): Pixels to remove before the island size constraint is applied. Defaults to None.
+
+    Returns:
+        NDArray[np.bool]: Mask of the islands that were kept
+    """
+    island_mask: NDArray[np.bool] = scipy_binary_dilation(
+        input=candidate_mask, iterations=2, structure=np.ones((3, 3))
+    )
+    island_mask = scipy_binary_erosion(
+        input=island_mask, iterations=2, structure=np.ones((3, 3))
+    )
+
+    if region_mask is not None:
+        island_mask[region_mask] = False
+
+    island_labels, _no_islands = label(input=island_mask, structure=np.ones((3, 3)))
+
+    # Index position is the label, with label 0 being the background
+    small_islands = np.bincount(island_labels.ravel()) < minimum_island_size
+    small_islands[0] = False
+    island_mask[small_islands[island_labels]] = False
+
+    return island_mask
+
+
 def grow_low_snr_mask(
     image: NDArray[np.floating] | None = None,
     rms: NDArray[np.floating] | None = None,
@@ -501,25 +583,11 @@ def grow_low_snr_mask(
     logger.info(
         f"Growing mask for low surface brightness using {grow_low_snr=} {grow_low_island_size=}"
     )
-    low_snr_mask: NDArray[np.bool] = signal > grow_low_snr
-    low_snr_mask = scipy_binary_dilation(
-        input=low_snr_mask, iterations=2, structure=np.ones((3, 3))
+    return _select_large_islands(
+        candidate_mask=signal > grow_low_snr,
+        minimum_island_size=grow_low_island_size,
+        region_mask=region_mask,
     )
-    low_snr_mask = scipy_binary_erosion(
-        input=low_snr_mask, iterations=2, structure=np.ones((3, 3))
-    )
-
-    if region_mask is not None:
-        low_snr_mask[region_mask] = False
-
-    mask_labels, _no_labels = label(input=low_snr_mask, structure=np.ones((3, 3)))
-
-    # Index position is the label, with label 0 being the background
-    small_islands = np.bincount(mask_labels.ravel()) < grow_low_island_size
-    small_islands[0] = False
-    low_snr_mask[small_islands[mask_labels]] = False
-
-    return low_snr_mask
 
 
 class SkewResult(NamedTuple):
@@ -836,8 +904,9 @@ def reverse_negative_flood_fill(
     logger.info("Will be reversing flood filling")
     logger.info(f"{masking_options=} ")
 
+    mac_threshold: NDArray[np.floating] | None = None
     if masking_options.flood_fill_use_mac:
-        # The seed and flood masks share the same base clipping level
+        # The seed, flood and low SNR island masks share the same base clipping level
         mac_threshold = minimum_absolute_clip_threshold(
             image=base_image,
             box_size=masking_options.flood_fill_use_mac_box_size,
@@ -868,11 +937,23 @@ def reverse_negative_flood_fill(
     )
 
     if masking_options.grow_low_snr_island:
-        low_snr_mask = grow_low_snr_mask(
-            signal=base_image,
-            grow_low_snr=masking_options.grow_low_snr_island_clip,
-            grow_low_island_size=masking_options.grow_low_snr_island_size,
-        )
+        if mac_threshold is not None:
+            # The base image is not a signal map when the minimum absolute clip is
+            # used, so the clip is the increase factor of the same clipping level
+            logger.info(
+                f"Growing mask for low surface brightness using {masking_options.grow_low_snr_island_clip=} as a minimum absolute clip"
+            )
+            low_snr_mask = _select_large_islands(
+                candidate_mask=base_image
+                > (mac_threshold * masking_options.grow_low_snr_island_clip),
+                minimum_island_size=masking_options.grow_low_snr_island_size,
+            )
+        else:
+            low_snr_mask = grow_low_snr_mask(
+                signal=base_image,
+                grow_low_snr=masking_options.grow_low_snr_island_clip,
+                grow_low_island_size=masking_options.grow_low_snr_island_size,
+            )
         positive_dilated_mask[low_snr_mask] = True
 
     return positive_dilated_mask
@@ -1299,7 +1380,7 @@ def get_parser() -> ArgumentParser:
     extract_parser.add_argument(
         "mosaic_image",
         type=Path,
-        help="The field mosaic image that will be used as a basis to extract a region mask from",
+        help="The field mosaic image that will be used as a basis to extract a region mask from. Should it end with .scalemask.fits it is treated as a per-scale mask, and its bitmapped values are preserved",
     )
 
     return parser
@@ -1309,13 +1390,6 @@ def cli() -> None:
     parser = get_parser()
 
     args = parser.parse_args()
-
-    # Only configured for the CLI so that library use (e.g. a dask worker)
-    # keeps control of its own logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)s %(levelname)s: %(message)s",
-    )
 
     if args.mode == "mask":
         masking_options = create_options_from_parser(
@@ -1331,9 +1405,14 @@ def cli() -> None:
         )
 
     elif args.mode == "extractmask":
+        mosaic_mask_names = (
+            FITSMaskNames(scale_mask_fits=args.mosaic_image)
+            if args.mosaic_image.name.endswith(".scalemask.fits")
+            else FITSMaskNames(mask_fits=args.mosaic_image)
+        )
         extract_beam_mask_from_mosaic(
             fits_beam_image_path=args.beam_image,
-            fits_mosaic_mask_names=FITSMaskNames(mask_fits=args.mosaic_image),
+            fits_mosaic_mask_names=mosaic_mask_names,
         )
     else:
         logger.error(f"Supplied mode {args.mode} is not known. ")
