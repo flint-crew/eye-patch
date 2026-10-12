@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from astropy.io import fits
 from astropy.wcs import WCS
-from scipy.ndimage import binary_dilation, label
+from scipy.ndimage import binary_dilation, label, minimum_filter
 from scipy.signal import fftconvolve
 
 from eye_patch.masking import (
@@ -313,6 +313,8 @@ def test_create_beam_mask_kernel_with_scales_resize(beam_fits_header):
     )
     assert mask_1.shape != mask_2.shape
     assert 0 in mask_2
+    # Resized kernels are odd so the beam stays centred on a pixel
+    assert all(size % 2 == 1 for size in mask_2.shape)
 
 
 def test_beam_shape_erode(beam_fits_header):
@@ -332,7 +334,12 @@ def test_beam_shape_erode(beam_fits_header):
     mask[100:130, 100:130] = True
     assert np.sum(mask) == 900
     erode_mask = beam_shape_erode(mask=mask, fits_header=fits_header)
-    assert np.sum(erode_mask) == 729
+    # The centred beam structure spans 3 rows and 5 columns, so the eroded
+    # square is 28 x 26 pixels and remains centred on the original square
+    assert np.sum(erode_mask) == 728
+    rows, cols = np.nonzero(erode_mask)
+    assert np.isclose(np.mean(rows), 114.5)
+    assert np.isclose(np.mean(cols), 114.5)
 
 
 def test_beam_shape_erode_scales(beam_fits_header):
@@ -686,7 +693,24 @@ def test_convolve_image_by_scale_is_not_shifted(scale: int) -> None:
 
     assert convolved.shape == image.shape
     assert convolved.dtype == image.dtype
-    assert np.allclose(_disk_centroid(convolved), (64.0, 64.0), atol=0.1)
+    assert np.allclose(_disk_centroid(image=convolved), (64.0, 64.0), atol=0.1)
+
+
+def test_beam_shape_erode_is_not_shifted(beam_fits_header: fits.Header) -> None:
+    """Even sized beam kernels have no centre pixel, which shifted every eroded
+    mask by half a pixel. Each scale should stay centred on the source."""
+    scales = (0, 4, 8, 16)
+    yy, xx = np.mgrid[:256, :256]
+    mask = (((xx - 128) ** 2 + (yy - 128) ** 2) <= 40**2).astype(float)
+
+    eroded_mask = beam_shape_erode(
+        mask=mask, fits_header=beam_fits_header, scales=scales
+    ).astype(int)
+
+    for index, _scale in enumerate(scales):
+        scale_mask = (eroded_mask >> index) & 1
+        assert np.sum(scale_mask) > 0
+        assert np.allclose(_disk_centroid(image=scale_mask), (128.0, 128.0))
 
 
 def test_fits_masking_convolve_first_with_nan(fits_dir: Path) -> None:
@@ -719,6 +743,7 @@ def test_fits_masking_convolve_first_with_nan(fits_dir: Path) -> None:
 
 
 def _celestial_header(crpix: tuple[float, float]) -> fits.Header:
+    """A simple celestial header that only differs in its reference pixel"""
     wcs = WCS(naxis=2)
     wcs.wcs.ctype = ["RA---SIN", "DEC--SIN"]
     wcs.wcs.crval = [150.0, -30.0]
@@ -732,12 +757,16 @@ def test_extract_beam_mask_from_mosaic_outside_footprint(tmp_path: Path) -> None
     reprojection, which used to be cast to a large non-zero integer"""
     mosaic_path = tmp_path / "mosaic.mask.fits"
     fits.writeto(
-        mosaic_path, np.ones(SHAPE, dtype=np.int32), header=_celestial_header((50, 50))
+        mosaic_path,
+        np.ones(SHAPE, dtype=np.int32),
+        header=_celestial_header(crpix=(50, 50)),
     )
 
     # Shifted so that half of the template falls outside of the mosaic
     template_path = tmp_path / "beam.fits"
-    fits.writeto(template_path, np.zeros(SHAPE), header=_celestial_header((100, 50)))
+    fits.writeto(
+        template_path, np.zeros(SHAPE), header=_celestial_header(crpix=(100, 50))
+    )
 
     for _ in range(2):  # Running again should overwrite rather than raise
         names = extract_beam_mask_from_mosaic(
@@ -766,6 +795,20 @@ def test_fits_masking_mac_without_flood_fill_uses_signal(fits_dir: Path) -> None
     assert np.sum(fits.getdata(names.mask_fits)) == np.prod(SHAPE)
 
 
+def test_fits_masking_mac_without_flood_fill_needs_rms_bkg(fits_dir: Path) -> None:
+    """Without the flood fill a signal image is needed. A missing RMS and
+    background should raise an error that points to the flood fill setting."""
+    masking_options = MaskingOptions(flood_fill=False, flood_fill_use_mac=True)
+
+    with pytest.raises(ValueError, match="flood_fill=True"):
+        create_snr_mask_from_fits(
+            fits_image_path=fits_dir / "image.fits",
+            fits_rms_path=None,
+            fits_bkg_path=None,
+            masking_options=masking_options,
+        )
+
+
 def test_verify_set_positive_seed_clip_with_nan() -> None:
     """NaNs should not disable the lowering of an unreachable seed clip"""
     signal = np.array([[np.nan, 3.0], [1.0, 2.0]])
@@ -773,14 +816,21 @@ def test_verify_set_positive_seed_clip_with_nan() -> None:
     assert np.isclose(clip, 2.7)
 
 
-def test_flood_fill_matches_binary_dilation() -> None:
-    """The labelling flood fill should match a constrained binary dilation"""
-    signal = np.random.default_rng(42).normal(size=(300, 300))
-    seed_mask = signal > 2.5
-    floor_mask = signal > 0.3
+@pytest.mark.parametrize("seeds_within_floor", [True, False])
+def test_flood_fill_matches_binary_dilation(seeds_within_floor: bool) -> None:
+    """The labelling flood fill should match a constrained binary dilation that is
+    iterated until convergence, including when seeds sit outside the floor mask"""
+    rng = np.random.default_rng(42)
+    if seeds_within_floor:
+        signal = rng.normal(size=(300, 300))
+        seed_mask = signal > 2.5
+        floor_mask = signal > 0.3
+    else:
+        seed_mask = rng.random(size=(300, 300)) > 0.995
+        floor_mask = rng.random(size=(300, 300)) > 0.45
 
     expected = binary_dilation(
-        input=seed_mask, mask=floor_mask, iterations=1000, structure=np.ones((3, 3))
+        input=seed_mask, mask=floor_mask, iterations=-1, structure=np.ones((3, 3))
     )
     flood_mask = _flood_fill(seed_mask=seed_mask, floor_mask=floor_mask)
 
@@ -792,17 +842,23 @@ def test_minimum_absolute_clip_threshold() -> None:
     image = np.random.default_rng(42).normal(size=(300, 300))
     threshold = minimum_absolute_clip_threshold(image=image, box_size=30)
 
+    rolling_minimum = minimum_filter(input=image, size=30, mode="wrap")
     for increase_factor in (0.8, 1.5, 4.5):
-        expected = _minimum_absolute_clip(
-            image=image, increase_factor=increase_factor, box_size=30
-        )
+        expected = image > (increase_factor * np.abs(rolling_minimum))
         assert np.array_equal(image > (threshold * increase_factor), expected)
+        assert np.array_equal(
+            minimum_absolute_clip(
+                image=image, increase_factor=increase_factor, box_size=30
+            ),
+            expected,
+        )
 
 
-def test_create_boxcar_skew_mask_matches_convolution() -> None:
-    """The running mean should match a zero padded convolution with a box of ones"""
+@pytest.mark.parametrize("box_size", [24, 25])
+def test_create_boxcar_skew_mask_matches_convolution(box_size: int) -> None:
+    """The running mean should match a zero padded convolution with a box of ones,
+    including the alignment of even sized boxes"""
     image = np.random.default_rng(42).normal(size=(300, 300)) + 0.2
-    box_size = 25
 
     result = create_boxcar_skew_mask(image=image, skew_delta=0.2, box_size=box_size)
 
@@ -821,7 +877,7 @@ def test_grow_low_snr_mask_island_sizes() -> None:
         signal=signal, grow_low_snr=0.5, grow_low_island_size=island_size
     )
 
-    island_labels, no_islands = label(low_snr_mask, structure=np.ones((3, 3)))
+    island_labels, no_islands = label(input=low_snr_mask, structure=np.ones((3, 3)))
     assert no_islands > 0
     island_counts = np.bincount(island_labels.ravel())[1:]
     assert np.all(island_counts >= island_size)
