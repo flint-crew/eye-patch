@@ -58,8 +58,11 @@ def get_beam_shape(fits_path: Path) -> BeamShape | None:
         Optional[BeamShape]: Shape of the beam stored in the FITS image. None is returned if the beam is not found.
     """
 
-    header = fits.getheader(filename=fits_path)
+    return _beam_shape_from_header(header=fits.getheader(filename=fits_path))
 
+
+def _beam_shape_from_header(header: fits.Header) -> BeamShape | None:
+    """Construct a beam shape from a FITS header, or None if the beam is not found"""
     if not all(key in header for key in ("BMAJ", "BMIN", "BPA")):
         return None
 
@@ -82,12 +85,11 @@ def get_pixels_per_beam(fits_path: Path) -> float | None:
         float | None: Number of pixels per beam. If beam is not in header then None is returned.
     """
 
-    beam_shape = get_beam_shape(fits_path=fits_path)
+    header = fits.getheader(filename=fits_path)
+    beam_shape = _beam_shape_from_header(header=header)
 
     if beam_shape is None:
         return None
-
-    header = fits.getheader(filename=fits_path)
 
     pixel_ra = np.abs(header["CDELT1"] * 3600)
     pixel_dec = np.abs(header["CDELT2"] * 3600)

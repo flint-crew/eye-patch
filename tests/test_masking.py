@@ -5,20 +5,29 @@ from pathlib import Path
 import numpy as np
 import pytest
 from astropy.io import fits
+from astropy.wcs import WCS
+from scipy.ndimage import binary_dilation, label
+from scipy.signal import fftconvolve
 
 from eye_patch.masking import (
     MaskingOptions,
     _create_signal_from_rmsbkg,
+    _flood_fill,
     _minimum_absolute_clip,
     _need_to_make_signal,
     _verify_set_positive_seed_clip,
     beam_shape_erode,
+    convolve_image_by_scale,
     create_beam_mask_kernel,
+    create_boxcar_skew_mask,
     create_options_from_parser,
     create_snr_mask_from_fits,
+    extract_beam_mask_from_mosaic,
     fft_binary_erosion,
     get_parser,
+    grow_low_snr_mask,
     minimum_absolute_clip,
+    minimum_absolute_clip_threshold,
 )
 from eye_patch.naming import FITSMaskNames
 
@@ -123,8 +132,13 @@ def test_need_to_make_signal():
     masking_options = MaskingOptions()
     assert _need_to_make_signal(masking_options=masking_options)
 
-    masking_options = MaskingOptions(flood_fill_use_mac=True)
+    masking_options = MaskingOptions(flood_fill=True, flood_fill_use_mac=True)
     assert not _need_to_make_signal(masking_options=masking_options)
+
+    # Without the flood fill the mac is unused, and the base_snr_clip
+    # needs a signal image rather than the raw image
+    masking_options = MaskingOptions(flood_fill=False, flood_fill_use_mac=True)
+    assert _need_to_make_signal(masking_options=masking_options)
 
 
 def test_arg_parser_cli_and_masking_options():
@@ -649,3 +663,165 @@ def test_fits_masking_with_signal(fits_dir):
 
     signal_data = fits.getdata(names.signal_fits)
     assert np.allclose(signal_data, 5)
+
+
+def _disk_centroid(image: np.ndarray) -> tuple[float, float]:
+    """Intensity weighted centroid of the positive pixels in an image"""
+    yy, xx = np.mgrid[: image.shape[0], : image.shape[1]]
+    weights = np.clip(image, 0.0, None)
+    return (
+        float(np.sum(yy * weights) / np.sum(weights)),
+        float(np.sum(xx * weights) / np.sum(weights)),
+    )
+
+
+@pytest.mark.parametrize("scale", [1, 2, 3, 4, 8, 16])
+def test_convolve_image_by_scale_is_not_shifted(scale: int) -> None:
+    """Small scales used to crash, and even sized opening filters and kernels
+    shifted the convolved image (and so the mask) away from the source"""
+    yy, xx = np.mgrid[:128, :128]
+    image = (((xx - 64) ** 2 + (yy - 64) ** 2) <= 15**2).astype(np.float32)
+
+    convolved = convolve_image_by_scale(image_data=image, scale=scale)
+
+    assert convolved.shape == image.shape
+    assert convolved.dtype == image.dtype
+    assert np.allclose(_disk_centroid(convolved), (64.0, 64.0), atol=0.1)
+
+
+def test_fits_masking_convolve_first_with_nan(fits_dir: Path) -> None:
+    """A single NaN pixel used to make the entire convolved image NaN, leaving
+    that scale with an empty mask"""
+    image_path = fits_dir / "image.fits"
+    image = np.ones(SHAPE)
+    image[50, 50] = np.nan
+    fits.writeto(image_path, image, overwrite=True)
+
+    masking_options = MaskingOptions(
+        flood_fill_use_mac=True,
+        flood_fill_positive_seed_clip=0.5,
+        convolve_first=True,
+        beam_shape_erode_scales=(0, 4),
+    )
+    names = create_snr_mask_from_fits(
+        fits_image_path=image_path,
+        fits_bkg_path=None,
+        fits_rms_path=None,
+        masking_options=masking_options,
+    )
+
+    assert names.scale_mask_fits is not None
+    mask_data = fits.getdata(names.scale_mask_fits)
+    assert np.all(np.isfinite(mask_data))
+    # The second scale is the second bit
+    scale_four = (mask_data.astype(int) & 2) > 0
+    assert np.mean(scale_four) > 0.9
+
+
+def _celestial_header(crpix: tuple[float, float]) -> fits.Header:
+    wcs = WCS(naxis=2)
+    wcs.wcs.ctype = ["RA---SIN", "DEC--SIN"]
+    wcs.wcs.crval = [150.0, -30.0]
+    wcs.wcs.cdelt = [-0.001, 0.001]
+    wcs.wcs.crpix = list(crpix)
+    return wcs.to_header()
+
+
+def test_extract_beam_mask_from_mosaic_outside_footprint(tmp_path: Path) -> None:
+    """Pixels of the template image outside of the mosaic footprint are NaN after
+    reprojection, which used to be cast to a large non-zero integer"""
+    mosaic_path = tmp_path / "mosaic.mask.fits"
+    fits.writeto(
+        mosaic_path, np.ones(SHAPE, dtype=np.int32), header=_celestial_header((50, 50))
+    )
+
+    # Shifted so that half of the template falls outside of the mosaic
+    template_path = tmp_path / "beam.fits"
+    fits.writeto(template_path, np.zeros(SHAPE), header=_celestial_header((100, 50)))
+
+    for _ in range(2):  # Running again should overwrite rather than raise
+        names = extract_beam_mask_from_mosaic(
+            fits_beam_image_path=template_path,
+            fits_mosaic_mask_names=FITSMaskNames(mask_fits=mosaic_path),
+        )
+
+    assert names.mask_fits is not None
+    mask_data = fits.getdata(names.mask_fits)
+    assert set(np.unique(mask_data)) == {0, 1}
+    assert 0.3 < np.mean(mask_data) < 0.7
+
+
+def test_fits_masking_mac_without_flood_fill_uses_signal(fits_dir: Path) -> None:
+    """The mac is only used with the flood fill, so the base_snr_clip should be
+    applied to the signal image (5 everywhere) rather than the raw image (1)"""
+    masking_options = MaskingOptions(flood_fill=False, flood_fill_use_mac=True)
+    names = create_snr_mask_from_fits(
+        fits_image_path=fits_dir / "image.fits",
+        fits_rms_path=fits_dir / "rms.fits",
+        fits_bkg_path=fits_dir / "bkg.fits",
+        masking_options=masking_options,
+    )
+
+    assert names.mask_fits is not None
+    assert np.sum(fits.getdata(names.mask_fits)) == np.prod(SHAPE)
+
+
+def test_verify_set_positive_seed_clip_with_nan() -> None:
+    """NaNs should not disable the lowering of an unreachable seed clip"""
+    signal = np.array([[np.nan, 3.0], [1.0, 2.0]])
+    clip = _verify_set_positive_seed_clip(positive_seed_clip=10.0, signal=signal)
+    assert np.isclose(clip, 2.7)
+
+
+def test_flood_fill_matches_binary_dilation() -> None:
+    """The labelling flood fill should match a constrained binary dilation"""
+    signal = np.random.default_rng(42).normal(size=(300, 300))
+    seed_mask = signal > 2.5
+    floor_mask = signal > 0.3
+
+    expected = binary_dilation(
+        input=seed_mask, mask=floor_mask, iterations=1000, structure=np.ones((3, 3))
+    )
+    flood_mask = _flood_fill(seed_mask=seed_mask, floor_mask=floor_mask)
+
+    assert np.array_equal(flood_mask, expected)
+
+
+def test_minimum_absolute_clip_threshold() -> None:
+    """A shared threshold should reproduce the minimum absolute clip at any factor"""
+    image = np.random.default_rng(42).normal(size=(300, 300))
+    threshold = minimum_absolute_clip_threshold(image=image, box_size=30)
+
+    for increase_factor in (0.8, 1.5, 4.5):
+        expected = _minimum_absolute_clip(
+            image=image, increase_factor=increase_factor, box_size=30
+        )
+        assert np.array_equal(image > (threshold * increase_factor), expected)
+
+
+def test_create_boxcar_skew_mask_matches_convolution() -> None:
+    """The running mean should match a zero padded convolution with a box of ones"""
+    image = np.random.default_rng(42).normal(size=(300, 300)) + 0.2
+    box_size = 25
+
+    result = create_boxcar_skew_mask(image=image, skew_delta=0.2, box_size=box_size)
+
+    expected = fftconvolve(
+        (image > 0).astype(float), np.ones((box_size, box_size)), mode="same"
+    ) / (box_size**2)
+    assert np.allclose(result.positive_pixel_frac, np.clip(expected, 0.0, 1.0))
+
+
+def test_grow_low_snr_mask_island_sizes() -> None:
+    """Only islands of at least the minimum size should be kept"""
+    signal = np.random.default_rng(42).normal(size=(300, 300))
+    island_size = 40
+
+    low_snr_mask = grow_low_snr_mask(
+        signal=signal, grow_low_snr=0.5, grow_low_island_size=island_size
+    )
+
+    island_labels, no_islands = label(low_snr_mask, structure=np.ones((3, 3)))
+    assert no_islands > 0
+    island_counts = np.bincount(island_labels.ravel())[1:]
+    assert np.all(island_counts >= island_size)
