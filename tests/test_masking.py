@@ -5,11 +5,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+import astropy.units as u
 import numpy as np
 import pytest
 from astropy.io import fits
 from astropy.wcs import WCS
-from scipy.ndimage import binary_dilation, label, minimum_filter
+from radio_beam import Beam
+from scipy.ndimage import binary_dilation, binary_erosion, label, minimum_filter
 from scipy.signal import fftconvolve
 
 from eye_patch.logging import CustomFormatter, logger
@@ -25,6 +27,7 @@ from eye_patch.masking import (
     convolve_image_by_scale,
     create_beam_mask_kernel,
     create_boxcar_skew_mask,
+    create_multi_scale_erosion,
     create_options_from_parser,
     create_snr_mask_from_fits,
     extract_beam_mask_from_mosaic,
@@ -569,8 +572,10 @@ def test_fits_masking_beam_erode_multi_scale_writes_scalemask(
     # Signal is 10 on the source and 0 elsewhere given the rms and bkg images
     fits.writeto(image_path, 0.5 + source * 1.0, header=header, overwrite=True)
 
+    # Scales are wsclean scales, whose Gaussians have a FWHM of about 0.44 of the
+    # scale, so they need to be well separated to erode this source differently
     masking_options = MaskingOptions(
-        flood_fill=False, beam_shape_erode=True, beam_shape_erode_scales=(0, 4, 8)
+        flood_fill=False, beam_shape_erode=True, beam_shape_erode_scales=(0, 8, 32)
     )
     names = create_snr_mask_from_fits(
         fits_image_path=image_path,
@@ -717,6 +722,43 @@ def test_beam_shape_erode_is_not_shifted(beam_fits_header: fits.Header) -> None:
         scale_mask = (eroded_mask >> index) & 1
         assert np.sum(scale_mask) > 0
         assert np.allclose(_disk_centroid(image=scale_mask), (128.0, 128.0))
+
+
+def _wsclean_gaussian_kernel(scale: int) -> np.ndarray:
+    """The Gaussian kernel that wsclean (via radler) forms for a multi-scale scale,
+    with a sigma of 3/16 of the scale, an odd size and centred on a pixel"""
+    sigma = scale * 3.0 / 16.0
+    size = int(np.ceil(sigma * 12.0 / 2.0)) * 2 + 1
+    profile = np.exp(-((np.arange(size) - size // 2) ** 2) / (2 * sigma**2))
+    kernel = np.outer(profile, profile)
+    normalised_kernel: np.ndarray = kernel / np.sum(kernel)
+    return normalised_kernel
+
+
+@pytest.mark.parametrize("scale", [8, 16, 32])
+def test_multi_scale_erosion_matches_wsclean_gaussian(
+    beam_fits_header: fits.Header, scale: int
+) -> None:
+    """The erosion at a scale should use the restoring beam convolved with the
+    Gaussian that wsclean uses for that scale. Treating the scale as a FWHM made
+    the erosion structure about 2.3 times too wide."""
+    beam = Beam.from_fits_header(beam_fits_header)
+    pixel_size = abs(beam_fits_header["CDELT1"]) * u.deg
+    beam_kernel = beam.as_kernel(pixscale=pixel_size, x_size=101, y_size=101).array
+    beam_scale_response = fftconvolve(
+        beam_kernel, _wsclean_gaussian_kernel(scale=scale), mode="same"
+    )
+    structure = beam_scale_response > 0.6 * np.max(beam_scale_response)
+
+    yy, xx = np.mgrid[:256, :256]
+    mask = ((xx - 128) ** 2 + (yy - 128) ** 2) <= 40**2
+
+    expected_mask = binary_erosion(input=mask, structure=structure)
+    eroded_mask = create_multi_scale_erosion(
+        mask=mask, fits_header=beam_fits_header, scale=scale
+    )
+
+    assert np.array_equal(eroded_mask, expected_mask)
 
 
 def test_beam_shape_erode_sorts_scales(

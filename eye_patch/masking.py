@@ -79,7 +79,7 @@ class MaskingOptions(BaseOptions):
     beam_shape_erode_minimum_response: float = 0.6
     """The minimum response of the beam that is used to form the erode structure shape"""
     beam_shape_erode_scales: tuple[int, ...] | None = None
-    """The multi-scale convolution sizes, in pixels, to perform a binary erosion with. Output scales are encoded as a bitmapped value (e.g. n'th scale is n'th bit). Scales are sorted into ascending order to match wsclean"""
+    """The wsclean multi-scale scales, in pixels, to perform a binary erosion with. Each is converted to the Gaussian that wsclean uses for it (a FWHM of about 0.44 of the scale). Output scales are encoded as a bitmapped value (e.g. n'th scale is n'th bit). Scales are sorted into ascending order to match wsclean"""
     convolve_first: bool = False
     """Attempt to construct mask across scales by first convolving the input image by a scale kernel, then run the island construction stage"""
 
@@ -88,7 +88,7 @@ def create_beam_mask_kernel(
     fits_header: fits.Header,
     kernel_size: int | tuple[int, int] = 100,
     minimum_response: float = 0.6,
-    pixel_scale: int | None = None,
+    pixel_scale: float | None = None,
     auto_resize: bool = True,
 ) -> NDArray[np.bool]:
     """Make a mask using the shape of a beam in a FITS Header object. The
@@ -100,7 +100,7 @@ def create_beam_mask_kernel(
         fits_header (fits.Header): The FITS header to create beam from
         kernel_size (int | tuple[int, int], optional): Size of the output kernel in pixels. Will be a square. An odd size centres the beam on a pixel, whereas an even size places it between pixels, which shifts any erosion using the kernel by half a pixel. Defaults to 100.
         minimum_response (float, optional): Minimum response of the beam shape for the mask to be constructed from. Defaults to 0.6.
-        pixel_scale (int | None, optional): Convolve the restoring beam by this scale. The input scale is in pixel units. Defaults to None.
+        pixel_scale (float | None, optional): The FWHM, in pixels, of a circular Gaussian that the restoring beam is convolved with. This is not a wsclean multi-scale scale, which should first be converted to its FWHM (see ``create_multi_scale_erosion``). Defaults to None.
         auto_resize (bool, optional): If True and the kernel is evaluated to all 1's, enlarge the ``kernel_size`` to ``2 * kernel_size + 1``, which keeps the kernel size odd. Defaults to True.
 
     Raises:
@@ -129,12 +129,10 @@ def create_beam_mask_kernel(
     pixel_unit = u.Unit("deg")
 
     if pixel_scale is not None:
-        assert isinstance(pixel_scale, int), (
-            f"{pixel_scale=} and is of type {type(pixel_scale)}, but should be int"
-        )
+        assert pixel_scale >= 0.0, f"{pixel_scale=}, but should not be negative"
         logger.debug(f"Convoling {beam=} with {pixel_scale=}")
-        arcsecond_kernel = int(pixel_scale) * cdelt1 * pixel_unit
-        scale_beam = Beam(arcsecond_kernel, arcsecond_kernel, 0 * u.deg)
+        scale_fwhm = float(pixel_scale) * cdelt1 * pixel_unit
+        scale_beam = Beam(scale_fwhm, scale_fwhm, 0 * u.deg)
 
         logger.debug(f"Convolving with {scale_beam=}")
         beam = beam.convolve(scale_beam)
@@ -217,6 +215,13 @@ def fft_binary_erosion(
     return np.reshape(erosion_mask, original_shape)
 
 
+# wsclean (via radler) forms the Gaussian kernel of a multi-scale scale with a
+# sigma of 3/16 of the scale. This is a FWHM of about 0.44 of the scale, which is
+# used to construct the beam shape of each scale.
+WSCLEAN_SCALE_TO_SIGMA = 3.0 / 16.0
+SIGMA_TO_FWHM = float(2.0 * np.sqrt(2.0 * np.log(2.0)))
+
+
 def _sort_scales(scales: list[int] | tuple[int, ...]) -> list[int]:
     """Sort scales into ascending order, warning should their order change.
 
@@ -247,7 +252,7 @@ def create_multi_scale_erosion(
     Args:
         mask (MaskLike | NDArray[np.bool]): The current mask that will be eroded based on the beam shape
         fits_header (fits.Header): The fits header of the mask used to generate the beam kernel shape
-        scale (int): The scale, in pixels, that the restoring beam is convolved by before the erosion is performed.
+        scale (int): The wsclean multi-scale scale, in pixels. The restoring beam is convolved by the Gaussian that wsclean uses for this scale before the erosion is performed.
         minimum_response (float, optional): The minimum response of the main restoring beam to craft the shape from. Defaults to 0.6.
 
     Returns:
@@ -260,7 +265,12 @@ def create_multi_scale_erosion(
         )
         return mask  # type: ignore[return-value]
 
-    logger.info(f"Eroding with {scale=}, {minimum_response=}")
+    # The scale is not a FWHM. wsclean uses a Gaussian with a sigma of 3/16 of the
+    # scale, so a scale of 16 pixels is a Gaussian with a FWHM of about 7 pixels
+    scale_fwhm = scale * WSCLEAN_SCALE_TO_SIGMA * SIGMA_TO_FWHM
+    logger.info(
+        f"Eroding with {scale=} ({scale_fwhm=:.2f} pixels), {minimum_response=}"
+    )
 
     # NOTE; The max() is to avoid excessive resize warnings at low scales. The
     # kernel size is kept odd so the beam is centred on a pixel, otherwise the
@@ -272,7 +282,7 @@ def create_multi_scale_erosion(
     beam_mask_kernel = create_beam_mask_kernel(
         fits_header=fits_header,
         minimum_response=minimum_response,
-        pixel_scale=scale,
+        pixel_scale=scale_fwhm,
         kernel_size=kernel_size,
         auto_resize=True,
     )
@@ -1160,14 +1170,12 @@ def convolve_image_by_scale(
     image_data: NDArray[np.floating], scale: int
 ) -> NDArray[np.floating]:
     """Generate a convolved version of the input image based on some convolved scale.
-    Note that here the scale refers to the scales used by wsclean. Per the multiscale
-    documentation, where considering gaussians:
+    Note that here the scale refers to the scales used by wsclean, which (via radler)
+    forms the Gaussian kernel of a scale with:
 
-    >> fwhm = 0.45 * scale
+    >> sigma = 3 / 16 * scale
 
-    Also not that:
-
-    >> fwhm = 2.355 * sigma
+    which is a FWHM of about 0.44 times the scale.
 
     Also note that the initial stage of this function is to first apply an 'open' filter,
     which preprocessed the image by using a set of minimum and maximum operations. This
@@ -1190,10 +1198,9 @@ def convolve_image_by_scale(
 
     logger.info(f"Convoling with {scale=}")
 
-    # wsclean scales are converted to a fwhm as 0.45 * pixel scales. To convert
-    # the FWHM to a sigma we divided by 2.355, matttee
-    fwhm = 0.45 * scale
-    sigma = fwhm / 2.355
+    # Use the same Gaussian that wsclean forms for this scale, matttee
+    sigma = scale * WSCLEAN_SCALE_TO_SIGMA
+    fwhm = sigma * SIGMA_TO_FWHM
 
     logger.info(f"Generating gaussian kernel for {scale=} {fwhm=:.3f} {sigma=:.3f}")
 
