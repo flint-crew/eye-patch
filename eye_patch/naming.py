@@ -3,11 +3,13 @@ from typing import NamedTuple
 
 
 class FITSMaskNames(NamedTuple):
-    """Contains the names of the FITS images created when creating a mask image/
-    These are only the names, and do not mean that they are necessarily created.
+    """Contains the names of the FITS images created when creating a mask image.
+    When returned by ``create_fits_mask_names`` these are only the candidate names,
+    and do not mean that they are necessarily created. When returned by a masking
+    function only the products that were written are set, and others are None.
     """
 
-    mask_fits: Path
+    mask_fits: Path | None = None
     """Name of the mask FITS file"""
     signal_fits: Path | None = None
     """Name of the signal FITS file"""
