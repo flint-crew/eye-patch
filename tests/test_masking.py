@@ -216,6 +216,19 @@ def test_arg_parser_cli_and_masking_options_for_multiscale():
     assert isinstance(masking_options, MaskingOptions)
     assert isinstance(masking_options.beam_shape_erode_scales, tuple)
     assert masking_options.beam_shape_erode_scales == (0, 1, 2, 4)
+    assert not masking_options.beam_shape_erode_scales_as_fwhm
+
+
+def test_arg_parser_scales_as_fwhm() -> None:
+    """The option to use scales as a FWHM, as in earlier versions, is available
+    from the CLI for comparisons"""
+    args = get_parser().parse_args(
+        args=["mask", "img", "--beam-shape-erode-scales-as-fwhm"]
+    )
+    masking_options = create_options_from_parser(
+        parser_namespace=args, options_class=MaskingOptions
+    )
+    assert masking_options.beam_shape_erode_scales_as_fwhm
 
 
 @pytest.fixture
@@ -759,6 +772,67 @@ def test_multi_scale_erosion_matches_wsclean_gaussian(
     )
 
     assert np.array_equal(eroded_mask, expected_mask)
+
+
+@pytest.mark.parametrize("scale", [8, 16, 32])
+def test_multi_scale_erosion_scale_is_fwhm(
+    beam_fits_header: fits.Header, scale: int
+) -> None:
+    """The comparison option uses the scale as the FWHM of the gaussian, as in
+    earlier versions, which erodes more than the wsclean gaussian of the scale"""
+    yy, xx = np.mgrid[:256, :256]
+    mask = ((xx - 128) ** 2 + (yy - 128) ** 2) <= 40**2
+
+    structure = create_beam_mask_kernel(
+        fits_header=beam_fits_header,
+        kernel_size=101,
+        pixel_scale=scale,
+        auto_resize=False,
+    )
+    expected_mask = binary_erosion(input=mask, structure=structure)
+
+    fwhm_mask = create_multi_scale_erosion(
+        mask=mask, fits_header=beam_fits_header, scale=scale, scale_is_fwhm=True
+    )
+    wsclean_mask = create_multi_scale_erosion(
+        mask=mask, fits_header=beam_fits_header, scale=scale
+    )
+
+    assert np.array_equal(fwhm_mask, expected_mask)
+    assert np.sum(fwhm_mask) < np.sum(wsclean_mask)
+
+
+@pytest.mark.parametrize("convolve_first", [False, True])
+def test_fits_masking_scales_as_fwhm(
+    tmp_path: Path, beam_fits_header: fits.Header, convolve_first: bool
+) -> None:
+    """The comparison option should reach the erosion of both the beam erosion and
+    the convolve first approaches, where it erodes the larger scale more"""
+    yy, xx = np.mgrid[:200, :200]
+    source = ((xx - 100) ** 2 + (yy - 100) ** 2) <= 40**2
+    image = np.random.default_rng(1).normal(scale=0.01, size=(200, 200)) + source
+    fits.writeto(tmp_path / "image.fits", image, header=beam_fits_header)
+    fits.writeto(tmp_path / "rms.fits", np.full((200, 200), 0.01))
+    fits.writeto(tmp_path / "bkg.fits", np.zeros((200, 200)))
+
+    largest_scale_pixels = []
+    for scales_as_fwhm in (False, True):
+        names = create_snr_mask_from_fits(
+            fits_image_path=tmp_path / "image.fits",
+            fits_rms_path=tmp_path / "rms.fits",
+            fits_bkg_path=tmp_path / "bkg.fits",
+            masking_options=MaskingOptions(
+                convolve_first=convolve_first,
+                beam_shape_erode=True,
+                beam_shape_erode_scales=(0, 32),
+                beam_shape_erode_scales_as_fwhm=scales_as_fwhm,
+            ),
+        )
+        assert names.scale_mask_fits is not None
+        scale_mask = fits.getdata(names.scale_mask_fits).astype(int)
+        largest_scale_pixels.append(np.sum((scale_mask >> 1) & 1))
+
+    assert 0 < largest_scale_pixels[1] < largest_scale_pixels[0]
 
 
 def test_beam_shape_erode_sorts_scales(

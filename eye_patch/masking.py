@@ -80,6 +80,8 @@ class MaskingOptions(BaseOptions):
     """The minimum response of the beam that is used to form the erode structure shape"""
     beam_shape_erode_scales: tuple[int, ...] | None = None
     """The wsclean multi-scale scales, in pixels, to perform a binary erosion with. Each is converted to the Gaussian that wsclean uses for it (a FWHM of about 0.44 of the scale). Output scales are encoded as a bitmapped value (e.g. n'th scale is n'th bit). Scales are sorted into ascending order to match wsclean"""
+    beam_shape_erode_scales_as_fwhm: bool = False
+    """Use each of the ``beam_shape_erode_scales`` as the FWHM of the Gaussian, rather than the Gaussian wsclean uses for it. This was the behaviour of earlier versions, and is about 2.3 times wider than the wsclean Gaussian of a scale. Intended for comparisons"""
     convolve_first: bool = False
     """Attempt to construct mask across scales by first convolving the input image by a scale kernel, then run the island construction stage"""
 
@@ -246,6 +248,7 @@ def create_multi_scale_erosion(
     fits_header: fits.Header,
     scale: int,
     minimum_response: float = 0.6,
+    scale_is_fwhm: bool = False,
 ) -> NDArray[np.bool]:
     """Specialised encode per-scale clean masks as bitmapped per-pixel integer values.
 
@@ -254,6 +257,7 @@ def create_multi_scale_erosion(
         fits_header (fits.Header): The fits header of the mask used to generate the beam kernel shape
         scale (int): The wsclean multi-scale scale, in pixels. The restoring beam is convolved by the Gaussian that wsclean uses for this scale before the erosion is performed.
         minimum_response (float, optional): The minimum response of the main restoring beam to craft the shape from. Defaults to 0.6.
+        scale_is_fwhm (bool, optional): Use the scale as the FWHM of the Gaussian instead, as in earlier versions. This is about 2.3 times wider than the wsclean Gaussian of the scale, and is intended for comparisons. Defaults to False.
 
     Returns:
         NDArray[np.bool]: The eroded mask
@@ -268,6 +272,12 @@ def create_multi_scale_erosion(
     # The scale is not a FWHM. wsclean uses a Gaussian with a sigma of 3/16 of the
     # scale, so a scale of 16 pixels is a Gaussian with a FWHM of about 7 pixels
     scale_fwhm = scale * WSCLEAN_SCALE_TO_SIGMA * SIGMA_TO_FWHM
+    if scale_is_fwhm:
+        logger.warning(
+            f"Using {scale=} as the FWHM, as in earlier versions, rather than the {scale_fwhm=:.2f} of the Gaussian wsclean uses"
+        )
+        scale_fwhm = float(scale)
+
     logger.info(
         f"Eroding with {scale=} ({scale_fwhm=:.2f} pixels), {minimum_response=}"
     )
@@ -320,6 +330,7 @@ def beam_shape_erode(
     fits_header: fits.Header,
     minimum_response: float = 0.6,
     scales: list[int] | tuple[int, ...] | None = None,
+    scales_as_fwhm: bool = False,
 ) -> MaskLike:
     """Construct a kernel representing the shape of the restoring beam at
         a particular level, and use it as the basis of a binary erosion of the
@@ -339,6 +350,7 @@ def beam_shape_erode(
             fits_header (fits.Header): The fits header of the mask used to generate the beam kernel shape
             minimum_response (float, optional): The minimum response of the main restoring beam to craft the shape from. Defaults to 0.6.
             scales (list[int] | tuple[int, ...] | None, optional): Defines the scales that are being used during multi-scale clean. Perform the beam erosion at each of these scales. Defaults to None.
+            scales_as_fwhm (bool, optional): Use each scale as the FWHM of the Gaussian, as in earlier versions, rather than the Gaussian wsclean uses for it. Intended for comparisons. Defaults to False.
 
         Returns:
     MaskLike: The eroded beam shape. For no/single scale the dtype of ``mask`` is
@@ -365,6 +377,7 @@ def beam_shape_erode(
             fits_header=fits_header,
             scale=scale,
             minimum_response=minimum_response,
+            scale_is_fwhm=scales_as_fwhm,
         )
         out_mask[erode_mask == 1.0] += 2**index
 
@@ -1140,6 +1153,7 @@ def create_snr_mask_from_fits(
             fits_header=fits_header,
             minimum_response=masking_options.beam_shape_erode_minimum_response,
             scales=masking_options.beam_shape_erode_scales,
+            scales_as_fwhm=masking_options.beam_shape_erode_scales_as_fwhm,
         )
 
     # Multiple erosion scales are bit-packed per pixel, so belong in the scale mask.
@@ -1286,6 +1300,7 @@ def _create_convolved_scale_mask(
             fits_header=fits_header,
             scale=scale,
             minimum_response=masking_options.beam_shape_erode_minimum_response,
+            scale_is_fwhm=masking_options.beam_shape_erode_scales_as_fwhm,
         )
         == 1
     )

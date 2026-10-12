@@ -176,6 +176,12 @@ wsclean gaussian of the same scale, so larger scales were eroded more than
 intended. Masks at larger scales are now larger than before, and settings tuned
 against the earlier behaviour may need to be revisited. The example image below
 was made with the earlier behaviour.
+
+To compare against the earlier behaviour set
+`MaskingOptions.beam_shape_erode_scales_as_fwhm` (or
+`--beam-shape-erode-scales-as-fwhm` on the CLI). Only the width of each scale is
+restored. Other fixes, such as centring the erosion structure on a pixel, still
+apply.
 ```
 
 The clean mask at each scale is stored as 'bitmapped' value - except since these
