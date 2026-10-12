@@ -79,7 +79,7 @@ class MaskingOptions(BaseOptions):
     beam_shape_erode_minimum_response: float = 0.6
     """The minimum response of the beam that is used to form the erode structure shape"""
     beam_shape_erode_scales: tuple[int, ...] | None = None
-    """The multi-scale convolution sizes, in pixels, to perform a binary erosion with. Output scales are encoded as a bitmapped value (e.g. n'th scale is n'th bit)"""
+    """The multi-scale convolution sizes, in pixels, to perform a binary erosion with. Output scales are encoded as a bitmapped value (e.g. n'th scale is n'th bit). Scales are sorted into ascending order to match wsclean"""
     convolve_first: bool = False
     """Attempt to construct mask across scales by first convolving the input image by a scale kernel, then run the island construction stage"""
 
@@ -217,6 +217,20 @@ def fft_binary_erosion(
     return np.reshape(erosion_mask, original_shape)
 
 
+def _sort_scales(scales: list[int] | tuple[int, ...]) -> list[int]:
+    """Sort scales into ascending order, warning should their order change.
+
+    wsclean sorts its multi-scale scales and reads the n'th bit of a per-scale
+    mask as its n'th smallest scale, so bits must be assigned in ascending order.
+    """
+    sorted_scales = sorted(scales)
+    if sorted_scales != list(scales):
+        logger.warning(
+            f"Scales {scales} are not in ascending order. Using {sorted_scales} so the n'th bit is the n'th smallest scale, as expected by wsclean"
+        )
+    return sorted_scales
+
+
 def _has_beam_parameters(fits_header: fits.Header) -> bool:
     """Whether the header carries the beam keywords needed to construct a beam kernel"""
     return all(key in fits_header for key in ["BMAJ", "BMIN", "BPA"])
@@ -330,6 +344,7 @@ def beam_shape_erode(
 
     scales = [0] if scales is None else scales
     assert isinstance(scales, (list, tuple)), f"{scales} should be a list or tuple"
+    scales = _sort_scales(scales=scales)
     logger.info(f"Eroding across {scales=}")
 
     out_mask = np.zeros(mask.shape)
@@ -1308,8 +1323,8 @@ def create_convolved_erosion_mask(
         logger.warning(f"Setting {np.sum(non_finite)} non-finite pixels to zero")
         base_image = np.where(non_finite, 0.0, base_image).astype(base_image.dtype)
 
-    scales = (
-        [0]
+    scales = _sort_scales(
+        scales=[0]
         if masking_options.beam_shape_erode_scales is None
         else masking_options.beam_shape_erode_scales
     )

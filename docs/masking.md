@@ -162,7 +162,8 @@ the specified scale (each scale is FWHM in pixels). The resulting beam is then
 evaluated in the basic process outlined above, eroding the clean islands at the
 native resolution to the clean islands at the specified scale. The clean mask at
 each scale is stored as 'bitmapped' value - except since these are floats the
-`n`'th scale is stored as `2**n` for each pixel.
+`n`'th scale is stored as `2**n` for each pixel. Scales are first sorted into
+ascending order, as wsclean reads the `n`'th bit as its `n`'th smallest scale.
 
 When more than one scale is specified this bitmapped mask is written to
 `<image>.scalemask.fits`. With a single scale, or without erosion, the mask is

@@ -719,6 +719,48 @@ def test_beam_shape_erode_is_not_shifted(beam_fits_header: fits.Header) -> None:
         assert np.allclose(_disk_centroid(image=scale_mask), (128.0, 128.0))
 
 
+def test_beam_shape_erode_sorts_scales(
+    beam_fits_header: fits.Header, caplog: pytest.LogCaptureFixture
+) -> None:
+    """wsclean reads the n'th bit as its n'th smallest scale, so unsorted scales
+    should be sorted, with a warning, before the bits are assigned"""
+    yy, xx = np.mgrid[:256, :256]
+    mask = (((xx - 128) ** 2 + (yy - 128) ** 2) <= 40**2).astype(float)
+
+    with caplog.at_level(logging.WARNING, logger="eye-patch"):
+        sorted_mask = beam_shape_erode(
+            mask=mask, fits_header=beam_fits_header, scales=(0, 4, 16)
+        )
+    assert not any("ascending order" in record.message for record in caplog.records)
+
+    with caplog.at_level(logging.WARNING, logger="eye-patch"):
+        unsorted_mask = beam_shape_erode(
+            mask=mask, fits_header=beam_fits_header, scales=(16, 0, 4)
+        )
+    assert any("ascending order" in record.message for record in caplog.records)
+    assert np.array_equal(sorted_mask, unsorted_mask)
+
+
+def test_fits_masking_convolve_first_sorts_scales(
+    fits_dir: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The convolve first approach also assigns bits in ascending scale order"""
+    masking_options = MaskingOptions(
+        flood_fill_use_mac=True,
+        flood_fill_positive_seed_clip=0.5,
+        convolve_first=True,
+        beam_shape_erode_scales=(4, 0),
+    )
+    with caplog.at_level(logging.WARNING, logger="eye-patch"):
+        create_snr_mask_from_fits(
+            fits_image_path=fits_dir / "image.fits",
+            fits_bkg_path=None,
+            fits_rms_path=None,
+            masking_options=masking_options,
+        )
+    assert any("ascending order" in record.message for record in caplog.records)
+
+
 def test_fits_masking_convolve_first_with_nan(fits_dir: Path) -> None:
     """A single NaN pixel used to make the entire convolved image NaN, leaving
     that scale with an empty mask"""
