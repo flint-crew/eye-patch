@@ -273,7 +273,8 @@ def create_multi_scale_erosion(
     # The scale is not a FWHM. wsclean uses a Gaussian with a sigma of 3/16 of the
     # scale, so a scale of 16 pixels is a Gaussian with a FWHM of about 7 pixels
     scale_fwhm = _wsclean_scale_to_sigma(scale=scale) * 2.0 * np.sqrt(2.0 * np.log(2.0))
-    if scale_is_fwhm:
+    # A scale of 0 is the restoring beam alone either way, so needs no warning
+    if scale_is_fwhm and scale > 0:
         logger.warning(
             f"Using {scale=} as the FWHM, as in earlier versions, rather than the {scale_fwhm=:.2f} of the Gaussian wsclean uses"
         )
