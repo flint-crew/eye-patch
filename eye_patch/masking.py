@@ -284,9 +284,9 @@ def create_multi_scale_erosion(
         f"Eroding with {scale=} ({scale_fwhm=:.2f} pixels), {minimum_response=}"
     )
 
-    # NOTE; The max() is to avoid excessive resize warnings at low scales. The
-    # kernel size is kept odd so the beam is centred on a pixel, otherwise the
-    # eroded mask is shifted by half a pixel
+    # The max() is to avoid excessive resize warnings at low scales. The
+    # kernel size is kept odd so the beam is centred on a pixel, correcting a half
+    # pixel shift
     kernel_size = max(17, int(1 + scale * 1.1))
     if kernel_size % 2 == 0:
         kernel_size += 1
