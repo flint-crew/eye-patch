@@ -39,9 +39,11 @@ __all__ = ["create_options_from_parser"]
 
 # TODO: Need to remove a fair amount of old approaches, and deprecate some of the toy functions
 
-# The masks can be represented as either booleans or floats. If booleans they get typecase to floats
-# during fits file creation.
+# Masks that may be written to a FITS file. Booleans are deliberately excluded, as
+# fits.writeto raises on a boolean array, so type checking stops one reaching it.
 MaskLike: TypeAlias = NDArray[np.floating]
+# Masks that are accepted as either booleans or floats, e.g. by the erosion helpers
+FloatOrBoolMask: TypeAlias = NDArray[np.floating] | NDArray[np.bool]
 
 
 class MaskingOptions(BaseOptions):
@@ -184,7 +186,7 @@ def create_beam_mask_kernel(
 
 
 def fft_binary_erosion(
-    mask: MaskLike | NDArray[np.bool],
+    mask: FloatOrBoolMask,
     kernel: NDArray[np.bool],
 ) -> NDArray[np.bool]:
     """Attempt to perform a binary erosion using convolution therom. FFT
@@ -196,7 +198,7 @@ def fft_binary_erosion(
     sum.
 
     Args:
-        mask (MaskLike): The mask that will be eroded
+        mask (FloatOrBoolMask): The mask that will be eroded
         kernel (NDArray[np.bool]): The kernel structure used for the erosion
 
     Returns:
@@ -243,7 +245,7 @@ def _has_beam_parameters(fits_header: fits.Header) -> bool:
 
 
 def create_multi_scale_erosion(
-    mask: MaskLike | NDArray[np.bool],
+    mask: FloatOrBoolMask,
     fits_header: fits.Header,
     scale: int,
     minimum_response: float = 0.6,
@@ -252,7 +254,7 @@ def create_multi_scale_erosion(
     """Specialised encode per-scale clean masks as bitmapped per-pixel integer values.
 
     Args:
-        mask (MaskLike | NDArray[np.bool]): The current mask that will be eroded based on the beam shape
+        mask (FloatOrBoolMask): The current mask that will be eroded based on the beam shape
         fits_header (fits.Header): The fits header of the mask used to generate the beam kernel shape
         scale (int): The wsclean multi-scale scale, in pixels. The restoring beam is convolved by the Gaussian that wsclean uses for this scale before the erosion is performed.
         minimum_response (float, optional): The minimum response of the main restoring beam to craft the shape from. Defaults to 0.6.
