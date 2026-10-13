@@ -81,7 +81,7 @@ class MaskingOptions(BaseOptions):
     beam_shape_erode_scales: tuple[int, ...] | None = None
     """The wsclean multi-scale scales, in pixels, to perform a binary erosion with. Each is converted to the Gaussian that wsclean uses for it (a FWHM of about 0.44 of the scale). Output scales are encoded as a bitmapped value (e.g. n'th scale is n'th bit). Scales are sorted into ascending order to match wsclean"""
     beam_shape_erode_scales_as_fwhm: bool = False
-    """Use each of the ``beam_shape_erode_scales`` as the FWHM of the Gaussian, rather than the Gaussian wsclean uses for it. This was the behaviour of earlier versions, and is about 2.3 times wider than the wsclean Gaussian of a scale. Intended for comparisons"""
+    """Use each of the ``beam_shape_erode_scales`` as the FWHM of the Gaussian, rather than the Gaussian wsclean uses for it. This was the behaviour of earlier versions, and is about 2.3 times wider than the wsclean Gaussian of a scale."""
     convolve_first: bool = False
     """Attempt to construct mask across scales by first convolving the input image by a scale kernel, then run the island construction stage"""
 
