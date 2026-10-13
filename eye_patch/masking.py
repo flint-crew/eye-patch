@@ -305,7 +305,7 @@ def create_multi_scale_erosion(
     )
 
     # As far as this pirate knows the scipy_binary_erosion used
-    # at the bottom is evaluated in the imade plane. For larger
+    # at the bottom is evaluated in the image plane. For larger
     # images and larger kernels (particularly the later), memory
     # usage ballons. I suspect scipy tries to stack all shifted kernels
     # and does the dot product in one go for all positions. In such
