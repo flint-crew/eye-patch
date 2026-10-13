@@ -306,11 +306,13 @@ def create_multi_scale_erosion(
 
     # As far as this pirate knows the scipy_binary_erosion used
     # at the bottom is evaluated in the image plane. For larger
-    # images and larger kernels (particularly the later), memory
-    # usage ballons. I suspect scipy tries to stack all shifted kernels
-    # and does the dot product in one go for all positions. In such
-    # an instance a better thing to do is via convolution - larger upfront
-    # compute cost but no memory explosion.
+    # images and larger kernels (particularly the later), the cpu
+    # cost ballons. Switching to FFT also speeds this up for
+    # larger images/kernels.
+    # TODO: Refine when the fft mode is used. scipy's memory is a table that
+    # depends on kernel size. Cropping the kernel to its structure would also shrink
+    # the scipy table by 8x without changing the erosion. The FFT approach is much
+    # faster for large kernels, but its memory grows with image size.
     size_ratio = np.prod(beam_mask_kernel.shape) / np.prod(mask.shape)
     logger.debug(f"{size_ratio=}")
     fft_erosion_mode = (size_ratio) > 5e-5
