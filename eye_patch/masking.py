@@ -664,9 +664,8 @@ def create_boxcar_skew_mask(
     )
     logger.info(f"Computing boxcar skew with {box_size=} and {skew_delta=}")
 
-    # Counting positive pixel fraction here. A running mean with zeros beyond
-    # the edges, matching a zero-padded convolution with a box of ones. The
-    # boolean mask is accepted directly, avoiding a floating point copy
+    # Counting positive pixel fraction here, a running mean on
+    # boolean mask
     positive_pixel_fraction = uniform_filter(
         input=image > 0.0,
         size=box_size,
