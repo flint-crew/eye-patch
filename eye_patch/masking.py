@@ -1076,7 +1076,6 @@ def create_snr_mask_from_fits(
         fits_image=fits_image_path, include_signal_path=create_signal_fits
     )
 
-    # TODOL Make the bkg and rms images optional. Don't need to load if mac is usede
     with fits.open(fits_image_path) as fits_image:
         fits_header = fits_image[0].header
         signal_data = fits_image[0].data
