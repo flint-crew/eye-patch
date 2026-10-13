@@ -832,12 +832,7 @@ def _flood_fill(
     seed_mask: NDArray[np.bool], floor_mask: NDArray[np.bool]
 ) -> NDArray[np.bool]:
     """Grow the seed pixels to all connected (8-connectivity) pixels of the floor
-    mask. This is equivalent to a binary dilation of the seed constrained by the
-    floor mask that is iterated until convergence, but is done with a single
-    labelling pass.
-
-    Seed pixels outside of the floor mask are labelled alongside the floor, as
-    during a constrained dilation they can still grow into adjacent floor pixels.
+    mask.
 
     Args:
         seed_mask (NDArray[np.bool]): Pixels to grow islands from
@@ -846,6 +841,10 @@ def _flood_fill(
     Returns:
         NDArray[np.bool]: The grown mask, which always includes the seed pixels
     """
+    # This is equivalent to a binary dilation of the seed constrained by the
+    # floor mask that is iterated until convergence, but is done with a single
+    # labelling pass.
+
     island_labels, no_islands = label(
         input=floor_mask | seed_mask, structure=np.ones((3, 3))
     )
