@@ -4,6 +4,7 @@ thought being towards FITS images.
 
 from __future__ import annotations
 
+import warnings
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import NamedTuple, TypeAlias
@@ -875,7 +876,7 @@ def _verify_set_positive_seed_clip(
     return positive_seed_clip
 
 
-def reverse_negative_flood_fill(
+def create_flood_fill_mask(
     base_image: NDArray[np.floating],
     masking_options: MaskingOptions,
 ) -> NDArray[np.bool]:
@@ -898,7 +899,7 @@ def reverse_negative_flood_fill(
         NDArray[np.bool]: Mask of the pixels to clean
     """
 
-    logger.info("Will be reversing flood filling")
+    logger.info("Will be flood filling")
     logger.info(f"{masking_options=} ")
 
     mac_threshold: NDArray[np.floating] | None = None
@@ -954,6 +955,22 @@ def reverse_negative_flood_fill(
         positive_dilated_mask[low_snr_mask] = True
 
     return positive_dilated_mask
+
+
+def reverse_negative_flood_fill(
+    base_image: NDArray[np.floating],
+    masking_options: MaskingOptions,
+) -> NDArray[np.bool]:
+    """Deprecated, use ``create_flood_fill_mask``. The negative island suppression
+    this name refers to has been removed."""
+    warnings.warn(
+        "reverse_negative_flood_fill is deprecated, use create_flood_fill_mask",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return create_flood_fill_mask(
+        base_image=base_image, masking_options=masking_options
+    )
 
 
 def _create_signal_from_rmsbkg(
@@ -1097,7 +1114,7 @@ def create_snr_mask_from_fits(
     if masking_options.flood_fill:
         # TODO: The image and signal masks both don't need to be inputs. Image is only used
         # if mac = True
-        mask_data = reverse_negative_flood_fill(
+        mask_data = create_flood_fill_mask(
             base_image=np.squeeze(signal_data),
             masking_options=masking_options,
         ).astype(np.float32)

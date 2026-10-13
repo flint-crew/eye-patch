@@ -26,6 +26,7 @@ from eye_patch.masking import (
     convolve_image_by_scale,
     create_beam_mask_kernel,
     create_boxcar_skew_mask,
+    create_flood_fill_mask,
     create_multi_scale_erosion,
     create_options_from_parser,
     create_snr_mask_from_fits,
@@ -1007,7 +1008,7 @@ def test_cli_extract_beam_scale_mask(
     assert np.max(scale_mask_data) == 7.0
 
 
-def test_reverse_negative_flood_fill_mac_grows_low_snr_islands() -> None:
+def test_create_flood_fill_mask_mac_grows_low_snr_islands() -> None:
     """With the minimum absolute clip the image is not a signal map. Low SNR islands
     should be found using the clip as an increase factor of the same clipping level,
     rather than comparing a significance to the raw pixel values."""
@@ -1020,7 +1021,7 @@ def test_reverse_negative_flood_fill_mac_grows_low_snr_islands() -> None:
     )
 
     without_growth, with_growth = (
-        reverse_negative_flood_fill(
+        create_flood_fill_mask(
             base_image=image,
             masking_options=MaskingOptions(
                 flood_fill=True,
@@ -1035,6 +1036,23 @@ def test_reverse_negative_flood_fill_mac_grows_low_snr_islands() -> None:
     assert np.mean(without_growth[diffuse]) < 0.1
     assert np.mean(with_growth[diffuse]) > 0.95
     assert np.mean(with_growth[~diffuse]) < 0.02
+
+
+def test_reverse_negative_flood_fill_is_deprecated() -> None:
+    """The old name still works for now, but warns and points to the new name"""
+    image = np.random.default_rng(3).normal(size=(100, 100))
+    image[40:60, 40:60] += 10.0
+    masking_options = MaskingOptions(flood_fill=True)
+
+    with pytest.warns(DeprecationWarning, match="create_flood_fill_mask"):
+        deprecated_mask = reverse_negative_flood_fill(
+            base_image=image, masking_options=masking_options
+        )
+
+    assert np.array_equal(
+        deprecated_mask,
+        create_flood_fill_mask(base_image=image, masking_options=masking_options),
+    )
 
 
 def test_logger_is_configured(caplog: pytest.LogCaptureFixture) -> None:
