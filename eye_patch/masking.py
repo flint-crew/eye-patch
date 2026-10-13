@@ -689,29 +689,6 @@ def create_boxcar_skew_mask(
     )
 
 
-def _minimum_absolute_clip(
-    image: NDArray[np.floating], increase_factor: float = 2.0, box_size: int = 100
-) -> NDArray[np.bool]:
-    """Given an input image or signal array, construct a simple image mask by applying a
-    rolling boxcar minimum filter, and then selecting pixels above a cut of
-    the absolute value value scaled by `increase_factor`. This is a pixel-wise operation.
-
-    This is the non-adaptive form of ``minimum_absolute_clip``, which it calls. It
-    is kept as the name is used elsewhere (e.g. the ``flint`` test suite).
-
-    Args:
-        image (NDArray[np.floating]): The input array to consider
-        increase_factor (float, optional): How large to scale the absolute minimum by. Defaults to 2.0.
-        box_size (int, optional): Size of the rolling boxcar minimum filtr. Defaults to 100.
-
-    Returns:
-        NDArray[np.bool]: The mask of pixels above the locally varying threshold
-    """
-    return minimum_absolute_clip(
-        image=image, increase_factor=increase_factor, box_size=box_size
-    )
-
-
 def _adaptive_rolling_minimum(
     image: NDArray[np.floating],
     box_size: int = 100,

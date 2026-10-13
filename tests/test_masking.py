@@ -19,7 +19,6 @@ from eye_patch.masking import (
     MaskingOptions,
     _create_signal_from_rmsbkg,
     _flood_fill,
-    _minimum_absolute_clip,
     _need_to_make_signal,
     _verify_set_positive_seed_clip,
     beam_shape_erode,
@@ -72,35 +71,27 @@ def test_adaptive_minimum_absolute_clip():
     assert np.sum(mask) == 1
 
 
-def test_private_minimum_absolute_clip():
+def test_minimum_absolute_clip_simple():
     """The minimum absolute clipping process accepts an image
     and returns a mask.  At its heart it applies a ``minimum_filter``
     from scipy."""
 
     image = np.ones(SHAPE) * -1.0
     image[10, 10] = -2
-    private_mac_mask = _minimum_absolute_clip(image=image, box_size=10)
     mac_mask = minimum_absolute_clip(image=image, box_size=10)
     assert np.all(~mac_mask)
-    assert np.all(private_mac_mask == mac_mask)
 
     image[12, 12] = 5
-    private_mac_mask = _minimum_absolute_clip(image=image)
     mac_mask = minimum_absolute_clip(image=image)
     assert np.sum(mac_mask) == 1
-    assert np.all(private_mac_mask == mac_mask)
 
     image[12, 12] = 0
-    private_mac_mask = _minimum_absolute_clip(image=image)
     mac_mask = minimum_absolute_clip(image=image)
     assert np.all(~mac_mask)
-    assert np.all(private_mac_mask == mac_mask)
 
     image[12, 12] = 5
-    private_mac_mask = _minimum_absolute_clip(image=image, increase_factor=3)
     mac_mask = minimum_absolute_clip(image=image, increase_factor=3)
     assert np.all(~mac_mask)
-    assert np.all(private_mac_mask == mac_mask)
 
 
 def test_create_signal_from_rmsbkg():
