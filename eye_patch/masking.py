@@ -451,9 +451,6 @@ def extract_beam_mask_from_mosaic(
     Returns:
         FITSMaskNames: Container with the extracted masks, which are named after ``fits_beam_image_path``. Masks that were not extracted are None.
     """
-    # TODO: Ideally we can accept an arbitrary WCS, or read the wsclean docs to
-    # try to construct it ourselves. The last thing that this pirate wants is
-    # to run the imager in a dry-run type mode  mode purely for the WCS.
 
     if (
         fits_mosaic_mask_names.mask_fits is None
