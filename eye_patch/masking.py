@@ -1043,9 +1043,9 @@ def create_snr_mask_from_fits(
     Each of the input images needs to share the same shape. This means that compression
     features offered by some tooling (e.g. BANE --compress) can not be used.
 
-    Depending on the `MaksingOptions` used the signal image may not be needed.
+    Depending on the `MaskingOptions` used the signal image may not be needed.
 
-    Once the signal map as been computed, all pixels below ``min_snr`` are flagged.
+    Without the flood fill, pixels above ``base_snr_clip`` form the mask.
 
     Args:
         fits_image_path (Path): Path to the FITS file containing an image
