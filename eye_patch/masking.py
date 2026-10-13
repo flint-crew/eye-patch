@@ -55,7 +55,7 @@ class MaskingOptions(BaseOptions):
     base_snr_clip: float = 4
     """A base clipping level to be used should other options not be activated"""
     flood_fill: bool = False
-    """Whether to attempt to flood fill when constructing a mask. This should be `True` for ``grow_low_snr_islands`` and ``suppress_artefacts`` to have an effect. """
+    """Whether to attempt to flood fill when constructing a mask. This should be `True` for ``grow_low_snr_island`` to have an effect."""
     flood_fill_positive_seed_clip: float = 4.5
     """The clipping level to seed islands that will be grown to lower signal metric"""
     flood_fill_positive_flood_clip: float = 1.5
@@ -879,33 +879,16 @@ def reverse_negative_flood_fill(
     base_image: NDArray[np.floating],
     masking_options: MaskingOptions,
 ) -> NDArray[np.bool]:
-    """Attempt to:
+    """Seed islands from bright pixels, and grow them to a lower clipping level.
 
-    * seed masks around bright regions of an image and grow them to lower significance thresholds
-    * remove regions of negative and positive islands that surround bright sources.
+    Seeds are pixels above ``flood_fill_positive_seed_clip``, and islands grow into
+    the connected pixels above ``flood_fill_positive_flood_clip`` (see ``_flood_fill``).
+    With ``flood_fill_use_mac`` both clips are increase factors of the minimum
+    absolute clip rather than signal-to-noise levels.
 
-    An initial set of islands (and masks) are constructed by first
-    using the `positive_seed_clip` to create an initial SNR based
-    mask. These islands then are binary dilated to grow the islands
-    to adjacent pixels at a lower significance level (see `scipy.ndimage.binary_dilation`).
-
-    Next an attempt is made to remove artefacts around bright sources,  where
-    there are likely to be positive and negative artefacts
-    that originate from calibration errors, deconvolution errors, or residual
-    structure from an incomplete clean.
-
-    This operation will search for islands of _negative_ pixels above a
-    threshold. These pixels are then grown after a guard mask has been constructed
-    around bright pixels.
-
-    The assumptions that go into this process:
-
-    * the no genuine source of negative sky emission
-    * if there are bright negative artefacts there are likely bright positive artefacts nearby
-    * such negative pixels are ~10% level artefacts from a presumed bright sources
-
-    Optionally, the `grow_low_snr_mask` may also be considered via the `grow_low_snr` and `grow_low_island_size`
-    parameters.
+    Should ``grow_low_snr_island`` be set, islands of faint and diffuse emission that
+    are never seeded are also added, using ``grow_low_snr_island_clip`` and
+    ``grow_low_snr_island_size``.
 
     Args:
         base_image (NDArray[np.floating]): The base image or signal map that is used throughout the fill procedure.
