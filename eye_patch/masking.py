@@ -217,11 +217,10 @@ def fft_binary_erosion(
     return np.reshape(erosion_mask, original_shape)
 
 
-# wsclean (via radler) forms the Gaussian kernel of a multi-scale scale with a
-# sigma of 3/16 of the scale. This is a FWHM of about 0.44 of the scale, which is
-# used to construct the beam shape of each scale.
-WSCLEAN_SCALE_TO_SIGMA = 3.0 / 16.0
-SIGMA_TO_FWHM = float(2.0 * np.sqrt(2.0 * np.log(2.0)))
+def _wsclean_scale_to_sigma(scale: float) -> float:
+    """wsclean (via radler) forms the Gaussian of a multi-scale scale with a sigma
+    of 3/16 of the scale, which is a FWHM of about 0.44 of the scale"""
+    return scale * 3.0 / 16.0
 
 
 def _sort_scales(scales: list[int] | tuple[int, ...]) -> list[int]:
@@ -271,7 +270,7 @@ def create_multi_scale_erosion(
 
     # The scale is not a FWHM. wsclean uses a Gaussian with a sigma of 3/16 of the
     # scale, so a scale of 16 pixels is a Gaussian with a FWHM of about 7 pixels
-    scale_fwhm = scale * WSCLEAN_SCALE_TO_SIGMA * SIGMA_TO_FWHM
+    scale_fwhm = _wsclean_scale_to_sigma(scale=scale) * 2.0 * np.sqrt(2.0 * np.log(2.0))
     if scale_is_fwhm:
         logger.warning(
             f"Using {scale=} as the FWHM, as in earlier versions, rather than the {scale_fwhm=:.2f} of the Gaussian wsclean uses"
@@ -1213,8 +1212,8 @@ def convolve_image_by_scale(
     logger.info(f"Convoling with {scale=}")
 
     # Use the same Gaussian that wsclean forms for this scale, matttee
-    sigma = scale * WSCLEAN_SCALE_TO_SIGMA
-    fwhm = sigma * SIGMA_TO_FWHM
+    sigma = _wsclean_scale_to_sigma(scale=scale)
+    fwhm = sigma * 2.0 * np.sqrt(2.0 * np.log(2.0))
 
     logger.info(f"Generating gaussian kernel for {scale=} {fwhm=:.3f} {sigma=:.3f}")
 
