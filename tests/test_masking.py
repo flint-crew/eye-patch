@@ -1,121 +1,19 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
 from astropy.io import fits
 
-from eye_patch.masking import (
-    MaskingOptions,
-    _create_signal_from_rmsbkg,
-    _minimum_absolute_clip,
-    _need_to_make_signal,
-    _verify_set_positive_seed_clip,
-    beam_shape_erode,
-    create_beam_mask_kernel,
-    create_options_from_parser,
-    create_snr_mask_from_fits,
-    fft_binary_erosion,
-    get_parser,
-    minimum_absolute_clip,
-)
+from eye_patch.masking import _need_to_make_signal, create_mask_from_fits
 from eye_patch.naming import FITSMaskNames
+from eye_patch.options import MaskingOptions
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 SHAPE = (100, 100)
-
-
-def test_adaptive_minimum_absolute_clip():
-    """Activate the adaptive mode of the mac"""
-
-    image = np.ones((2000, 2000)) * -1.2
-    image[100:200, 100:200] = 1.0
-    mask = minimum_absolute_clip(
-        image=image,
-        box_size=50,
-        increase_factor=1.1,
-        adaptive_max_depth=1,
-        adaptive_box_step=4.0,
-        adaptive_skew_delta=0.2,
-    )
-    assert np.all(~mask)
-
-    image = np.ones((2000, 2000)) * -1.2
-    image[100:200, 100:200] = 1.0
-    image[110, 130] = 2000
-    mask = minimum_absolute_clip(
-        image=image,
-        box_size=50,
-        increase_factor=1.1,
-        adaptive_max_depth=1,
-        adaptive_box_step=4.0,
-        adaptive_skew_delta=0.2,
-    )
-    assert np.sum(mask) == 1
-
-
-def test_private_minimum_absolute_clip():
-    """The minimum absolute clipping process accepts an image
-    and returns a mask.  At its heart it applies a ``minimum_filter``
-    from scipy."""
-
-    image = np.ones(SHAPE) * -1.0
-    image[10, 10] = -2
-    private_mac_mask = _minimum_absolute_clip(image=image, box_size=10)
-    mac_mask = minimum_absolute_clip(image=image, box_size=10)
-    assert np.all(~mac_mask)
-    assert np.all(private_mac_mask == mac_mask)
-
-    image[12, 12] = 5
-    private_mac_mask = _minimum_absolute_clip(image=image)
-    mac_mask = minimum_absolute_clip(image=image)
-    assert np.sum(mac_mask) == 1
-    assert np.all(private_mac_mask == mac_mask)
-
-    image[12, 12] = 0
-    private_mac_mask = _minimum_absolute_clip(image=image)
-    mac_mask = minimum_absolute_clip(image=image)
-    assert np.all(~mac_mask)
-    assert np.all(private_mac_mask == mac_mask)
-
-    image[12, 12] = 5
-    private_mac_mask = _minimum_absolute_clip(image=image, increase_factor=3)
-    mac_mask = minimum_absolute_clip(image=image, increase_factor=3)
-    assert np.all(~mac_mask)
-    assert np.all(private_mac_mask == mac_mask)
-
-
-def test_create_signal_from_rmsbkg():
-    """Make sure the operations around the creation of a signal image from
-    rms / bkg images follows and handles paths vs numpy arrays"""
-    shape = (100, 100)
-    image = np.zeros(shape) + 10
-    bkg = np.ones(shape)
-    rms = np.zeros(shape) + 3
-
-    signal = _create_signal_from_rmsbkg(image=image, rms=rms, bkg=bkg)
-    assert np.all(signal == 3.0)
-
-
-def test_create_signal_from_rmsbkg_with_fits(tmpdir):
-    """Make sure the operations around the creation of a signal image from
-    rms / bkg images follows and handles paths vs numpy arrays. Unlike the
-    above this uses fits for some inputs"""
-    out_path = Path(tmpdir) / "fits"
-    out_path.mkdir(parents=True, exist_ok=True)
-
-    shape = (100, 100)
-    image = np.zeros(shape) + 10
-    image_fits = Path(out_path) / "image.fits"
-    fits.writeto(image_fits, data=image)
-
-    bkg = np.ones(shape)
-    rms = np.zeros(shape) + 3
-    rms_fits = Path(out_path) / "rms.fits"
-    fits.writeto(rms_fits, data=rms)
-
-    signal = _create_signal_from_rmsbkg(image=image_fits, rms=rms_fits, bkg=bkg)
-    assert np.all(signal == 3.0)
 
 
 def test_need_to_make_signal():
@@ -123,305 +21,13 @@ def test_need_to_make_signal():
     masking_options = MaskingOptions()
     assert _need_to_make_signal(masking_options=masking_options)
 
-    masking_options = MaskingOptions(flood_fill_use_mac=True)
+    masking_options = MaskingOptions(flood_fill=True, flood_fill_use_mac=True)
     assert not _need_to_make_signal(masking_options=masking_options)
 
-
-def test_arg_parser_cli_and_masking_options():
-    """See if the CLI parser is constructed with correct set of
-    options which are properly converted to a MaskingOptions object"""
-    parser = get_parser()
-    args = parser.parse_args(
-        args=[
-            "mask",
-            "img",
-            "--rms-fits",
-            "rms",
-            "--bkg-fits",
-            "bkg",
-            "--flood-fill",
-            "--flood-fill-positive-seed-clip",
-            "10",
-            "--flood-fill-positive-flood-clip",
-            "1.",
-            "--flood-fill-use-mac",
-            "--flood-fill-use-mac-box-size",
-            "100",
-        ]
-    )
-    masking_options = create_options_from_parser(
-        parser_namespace=args, options_class=MaskingOptions
-    )
-    assert isinstance(masking_options, MaskingOptions)
-    assert masking_options.flood_fill
-    assert masking_options.flood_fill_use_mac
-    assert masking_options.flood_fill_positive_seed_clip == 10.0
-    assert masking_options.flood_fill_positive_flood_clip == 1.0
-
-
-def test_arg_parser_cli_and_masking_options_for_multiscale():
-    """See if the CLI parser is constructed with correct set of
-    options which are properly converted to a MaskingOptions object. Here
-    want to make sure that the multiscale erosion are picked up"""
-    parser = get_parser()
-    args = parser.parse_args(
-        args=[
-            "mask",
-            "img",
-            "--beam-shape-erode-scales",
-            "0",
-            "1",
-            "2",
-            "4",
-            "--rms-fits",
-            "rms",
-            "--bkg-fits",
-            "bkg",
-            "--flood-fill",
-            "--flood-fill-positive-seed-clip",
-            "10",
-            "--flood-fill-positive-flood-clip",
-            "1.",
-            "--flood-fill-use-mac",
-            "--flood-fill-use-mac-box-size",
-            "100",
-        ]
-    )
-    masking_options = create_options_from_parser(
-        parser_namespace=args, options_class=MaskingOptions
-    )
-    assert isinstance(masking_options, MaskingOptions)
-    assert isinstance(masking_options.beam_shape_erode_scales, tuple)
-    assert masking_options.beam_shape_erode_scales == (0, 1, 2, 4)
-
-
-@pytest.fixture
-def beam_fits_header() -> fits.Header:
-    return fits.Header(
-        {
-            "CDELT1": -0.000694444444444444,
-            "CDELT2": 0.000694444444444444,
-            "BMAJ": 0.00340540107886635,
-            "BMIN": 0.00283268735470751,
-            "BPA": 74.6618858613889,
-        }
-    )
-
-
-def test_create_beam_mask_kernel(beam_fits_header):
-    """See whether the beam kernel creation mask can return a correct mask"""
-    fits_header = beam_fits_header
-    mask_1 = create_beam_mask_kernel(fits_header=fits_header)
-    assert mask_1.shape == (100, 100)
-    assert np.sum(mask_1) == 12
-
-    mask_2 = create_beam_mask_kernel(fits_header=fits_header, minimum_response=0.1)
-    assert mask_2.shape == (100, 100)
-    assert np.sum(mask_2) == 52
-
-    fits_header = fits.Header(
-        {
-            "CDELT1": -0.000694444444444444,
-            "CDELT2": 0.2000694444444444444,
-            "BMAJ": 0.00340540107886635,
-            "BMIN": 0.00283268735470751,
-            "BPA": 74.6618858613889,
-        }
-    )
-    with pytest.raises(AssertionError):
-        create_beam_mask_kernel(fits_header=fits_header)
-
-    fits_header = fits.Header(
-        {
-            "CDELT1": -0.000694444444444444,
-            "BMAJ": 0.00340540107886635,
-            "BMIN": 0.00283268735470751,
-            "BPA": 74.6618858613889,
-        }
-    )
-    with pytest.raises(KeyError):
-        create_beam_mask_kernel(fits_header=fits_header)
-
-
-def test_create_beam_mask_kernel_with_scales(beam_fits_header):
-    """See whether the beam kernel creation mask can return a correct mask. Here
-    we also test for different scales."""
-
-    fits_header = beam_fits_header
-    mask_1 = create_beam_mask_kernel(fits_header=fits_header)
-    assert mask_1.shape == (100, 100)
-    assert np.sum(mask_1) == 12
-
-    mask_2 = create_beam_mask_kernel(fits_header=fits_header, pixel_scale=0)
-    assert mask_2.shape == (100, 100)
-    assert np.sum(mask_2) == 12
-
-    assert np.all(mask_1 == mask_2)
-
-    mask_3 = create_beam_mask_kernel(fits_header=fits_header, pixel_scale=4)
-    assert mask_3.shape == (100, 100)
-    assert np.sum(mask_3) == 22
-
-    assert not np.all(mask_1 == mask_3)
-
-    mask_4 = create_beam_mask_kernel(fits_header=fits_header, pixel_scale=32)
-    assert mask_4.shape == (100, 100)
-    assert np.sum(mask_4) == 608
-
-    assert not np.all(mask_1 == mask_4)
-
-    # With these options the output shape should be
-    # the same as the input shape
-    test_mask = np.zeros((200, 440))
-    mask_5 = create_beam_mask_kernel(
-        fits_header=fits_header,
-        pixel_scale=32,
-        auto_resize=False,
-        kernel_size=test_mask.shape,
-    )
-    assert test_mask.shape == mask_5.shape
-
-
-def test_create_beam_mask_kernel_with_scales_resize(beam_fits_header):
-    """See whether the beam kernel creation mask can return a correct mask. Here
-    we also test for different scales. This is test the resize component of the
-    kernel evaluation"""
-
-    fits_header = beam_fits_header
-    mask_1 = create_beam_mask_kernel(
-        fits_header=fits_header, auto_resize=False, pixel_scale=512
-    )
-    assert np.all(mask_1 == 1)
-
-    fits_header = beam_fits_header
-    mask_2 = create_beam_mask_kernel(
-        fits_header=fits_header, auto_resize=True, pixel_scale=512
-    )
-    assert mask_1.shape != mask_2.shape
-    assert 0 in mask_2
-
-
-def test_beam_shape_erode(beam_fits_header):
-    """Ensure that the beam shape erosion approach works. This should drop out pixels
-    should the beam shape structure connectivity be statisifed"""
-    fits_header = beam_fits_header
-
-    mask = np.zeros((500, 500)).astype(bool)
-
-    mask[300, 300] = True
-    assert np.sum(mask) == 1
-
-    new_mask = beam_shape_erode(mask=mask, fits_header=fits_header)
-    assert np.sum(new_mask) == 0
-
-    mask = np.zeros((200, 200)).astype(bool)
-    mask[100:130, 100:130] = True
-    assert np.sum(mask) == 900
-    erode_mask = beam_shape_erode(mask=mask, fits_header=fits_header)
-    assert np.sum(erode_mask) == 729
-
-
-def test_beam_shape_erode_scales(beam_fits_header):
-    """Ensure that the beam shape erosion approach works. This should drop out pixels
-    should the beam shape structure connectivity be statisifed"""
-    fits_header = beam_fits_header
-
-    # There should be nothing that passes this
-    mask = np.zeros((500, 500)).astype(bool)
-    mask[300, 300] = True
-    assert np.sum(mask) == 1
-
-    erode_mask = beam_shape_erode(
-        mask=mask, fits_header=fits_header, scales=[0, 2, 4, 8]
-    )
-    assert erode_mask.dtype != mask.dtype
-    assert np.max(erode_mask) == 0.0
-
-    # All scales should pass
-    mask = np.zeros((500, 500)).astype(bool)
-    mask[300:330, 300:330] = True
-    assert np.sum(mask) == 900
-
-    erode_mask = beam_shape_erode(
-        mask=mask, fits_header=fits_header, scales=[0, 2, 4, 8]
-    )
-    assert erode_mask.dtype != mask.dtype
-    assert np.max(erode_mask) == 15
-
-    # All scales should pass
-    mask = np.zeros((500, 500)).astype(bool)
-    mask[300:310, 300:310] = True
-    assert np.sum(mask) == 100
-
-    erode_mask = beam_shape_erode(
-        mask=mask, fits_header=fits_header, scales=[0, 2, 32, 64, 128]
-    )
-    assert erode_mask.dtype != mask.dtype
-    assert np.max(erode_mask) == 3
-
-
-def test_fft_binary_erosion() -> None:
-    """Basic test for binaruy erosion done using the FFT approach"""
-    base_shape = (1000, 1000)
-    mask = np.zeros(base_shape)
-    mask[450:550, 450:550] = 1
-
-    kernel = np.zeros(base_shape)
-    kernel[490:510, 490:510] = 1
-    eroded = fft_binary_erosion(mask=mask, kernel=kernel.astype(bool))
-    assert np.sum(eroded) == 6561
-
-    kernel = np.zeros(base_shape)
-    kernel[450:550, 450:550] = 1
-    eroded = fft_binary_erosion(mask=mask, kernel=kernel.astype(bool))
-    assert np.sum(eroded) == 1
-    assert np.unravel_index(np.argmax(eroded), base_shape) == (
-        np.int64(500),
-        np.int64(500),
-    )
-
-    kernel = np.zeros(base_shape)
-    kernel[400:600, 400:600] = 1
-    eroded = fft_binary_erosion(mask=mask, kernel=kernel.astype(bool))
-    assert np.sum(eroded) == 0
-
-
-def test_beam_shape_erode_nobeam():
-    """Ensure that the beam shape erosion approach works. This should drop out pixels
-    should the beam shape structure connectivity be statisifed. This should simply return
-    the input array since there is no beam information"""
-    fits_header = fits.Header(
-        {
-            "CDELT1": -0.000694444444444444,
-            "CDELT2": 0.000694444444444444,
-        }
-    )
-
-    mask = np.zeros((500, 500)).astype(bool)
-
-    mask[300, 300] = True
-    assert np.sum(mask) == 1
-    new_mask = beam_shape_erode(mask=mask, fits_header=fits_header)
-    assert new_mask is mask
-    assert np.sum(new_mask) == 1
-
-
-@pytest.fixture
-def fits_dir(tmpdir):
-    fits_dir = Path(tmpdir) / "fits"
-    fits_dir.mkdir()
-
-    shape = SHAPE
-
-    img_data = np.ones(shape)
-    bkg_data = np.ones(shape) * 0.5
-    rms_data = np.ones(shape) * 0.1
-
-    fits.writeto(fits_dir / "image.fits", img_data)
-    fits.writeto(fits_dir / "rms.fits", rms_data)
-    fits.writeto(fits_dir / "bkg.fits", bkg_data)
-
-    return fits_dir
+    # Without the flood fill the mac is unused, and the base_snr_clip
+    # needs a signal image rather than the raw image
+    masking_options = MaskingOptions(flood_fill=False, flood_fill_use_mac=True)
+    assert _need_to_make_signal(masking_options=masking_options)
 
 
 def test_make_masking_options():
@@ -435,49 +41,9 @@ def test_make_masking_options():
     assert masking_options.base_snr_clip == -1
 
 
-def test_verify_set_seed_clip():
-    """Make sure the flood seed clip handles items above all possible values"""
-    signal = np.ones((100, 100)) * 10.0
-
-    flood_clip = _verify_set_positive_seed_clip(signal=signal, positive_seed_clip=9.0)
-
-    assert flood_clip == 9.0
-    flood_clip = _verify_set_positive_seed_clip(
-        signal=signal, positive_seed_clip=999999.0
-    )
-    assert flood_clip == 9.0
-
-
-def test_fits_masking_convolve_first(fits_dir):
-    """A basic check to see if the convolve first algorithm is working, where
-    working be no errors mate"""
-    masking_options = MaskingOptions(
-        flood_fill_use_mac=True,
-        flood_fill_positive_seed_clip=0.5,
-        convolve_first=True,
-    )
-    names = create_snr_mask_from_fits(
-        fits_image_path=fits_dir / "image.fits",
-        fits_bkg_path=None,
-        fits_rms_path=None,
-        masking_options=masking_options,
-    )
-
-    assert isinstance(names, FITSMaskNames)
-    assert names.scale_mask_fits is not None
-    assert names.scale_mask_fits.exists()
-    assert names.signal_fits is None
-    assert names.mask_fits is None
-
-    mask_data = fits.getdata(names.scale_mask_fits)
-    assert mask_data.dtype.kind == "f", "A bool mask cannot be written to FITS"
-    valid = np.sum(mask_data)
-    assert valid == np.prod(SHAPE)
-
-
 def test_fits_masking(fits_dir):
     masking_options = MaskingOptions(flood_fill=False)
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=fits_dir / "image.fits",
         fits_rms_path=fits_dir / "rms.fits",
         fits_bkg_path=fits_dir / "bkg.fits",
@@ -514,7 +80,7 @@ def test_fits_masking_flood_fill_with_beam_erode(beam_fits_dir: Path) -> None:
     """The flood filled mask reaches ``beam_shape_erode``, which types its input
     as floats. This is the path the bool mask was travelling down."""
     masking_options = MaskingOptions(flood_fill=True, beam_shape_erode=True)
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=beam_fits_dir / "image.fits",
         fits_rms_path=beam_fits_dir / "rms.fits",
         fits_bkg_path=beam_fits_dir / "bkg.fits",
@@ -542,10 +108,12 @@ def test_fits_masking_beam_erode_multi_scale_writes_scalemask(
     # Signal is 10 on the source and 0 elsewhere given the rms and bkg images
     fits.writeto(image_path, 0.5 + source * 1.0, header=header, overwrite=True)
 
+    # Scales are wsclean scales, whose Gaussians have a FWHM of about 0.44 of the
+    # scale, so they need to be well separated to erode this source differently
     masking_options = MaskingOptions(
-        flood_fill=False, beam_shape_erode=True, beam_shape_erode_scales=(0, 4, 8)
+        flood_fill=False, beam_shape_erode=True, beam_shape_erode_scales=(0, 8, 32)
     )
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=image_path,
         fits_rms_path=beam_fits_dir / "rms.fits",
         fits_bkg_path=beam_fits_dir / "bkg.fits",
@@ -570,7 +138,7 @@ def test_fits_masking_beam_erode_multi_scale_without_beam(fits_dir: Path) -> Non
     masking_options = MaskingOptions(
         flood_fill=False, beam_shape_erode=True, beam_shape_erode_scales=(0, 4, 8)
     )
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=fits_dir / "image.fits",
         fits_rms_path=fits_dir / "rms.fits",
         fits_bkg_path=fits_dir / "bkg.fits",
@@ -592,7 +160,7 @@ def test_fits_masking_signal_not_needed_is_not_returned(fits_dir: Path) -> None:
     masking_options = MaskingOptions(
         flood_fill=True, flood_fill_use_mac=True, flood_fill_positive_seed_clip=0.5
     )
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=fits_dir / "image.fits",
         fits_rms_path=None,
         fits_bkg_path=None,
@@ -611,7 +179,7 @@ def test_fits_masking_flood_fill_writes_float_mask(fits_dir: Path) -> None:
     rejects. Reported by Beth via #14, and not caught earlier because every other
     mask test runs with ``flood_fill=False``."""
     masking_options = MaskingOptions(flood_fill=True)
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=fits_dir / "image.fits",
         fits_rms_path=fits_dir / "rms.fits",
         fits_bkg_path=fits_dir / "bkg.fits",
@@ -629,7 +197,7 @@ def test_fits_masking_flood_fill_writes_float_mask(fits_dir: Path) -> None:
 
 def test_fits_masking_with_signal(fits_dir):
     masking_options = MaskingOptions(flood_fill=False)
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=fits_dir / "image.fits",
         fits_rms_path=fits_dir / "rms.fits",
         fits_bkg_path=fits_dir / "bkg.fits",
@@ -649,3 +217,65 @@ def test_fits_masking_with_signal(fits_dir):
 
     signal_data = fits.getdata(names.signal_fits)
     assert np.allclose(signal_data, 5)
+
+
+@pytest.mark.parametrize("convolve_first", [False, True])
+def test_fits_masking_scales_as_fwhm(
+    tmp_path: Path, beam_fits_header: fits.Header, convolve_first: bool
+) -> None:
+    """The comparison option should reach the erosion of both the beam erosion and
+    the convolve first approaches, where it erodes the larger scale more"""
+    yy, xx = np.mgrid[:200, :200]
+    source = ((xx - 100) ** 2 + (yy - 100) ** 2) <= 40**2
+    image = np.random.default_rng(1).normal(scale=0.01, size=(200, 200)) + source
+    fits.writeto(tmp_path / "image.fits", image, header=beam_fits_header)
+    fits.writeto(tmp_path / "rms.fits", np.full((200, 200), 0.01))
+    fits.writeto(tmp_path / "bkg.fits", np.zeros((200, 200)))
+
+    largest_scale_pixels = []
+    for scales_as_fwhm in (False, True):
+        names = create_mask_from_fits(
+            fits_image_path=tmp_path / "image.fits",
+            fits_rms_path=tmp_path / "rms.fits",
+            fits_bkg_path=tmp_path / "bkg.fits",
+            masking_options=MaskingOptions(
+                convolve_first=convolve_first,
+                beam_shape_erode=True,
+                beam_shape_erode_scales=(0, 32),
+                beam_shape_erode_scales_as_fwhm=scales_as_fwhm,
+            ),
+        )
+        assert names.scale_mask_fits is not None
+        scale_mask = fits.getdata(names.scale_mask_fits).astype(int)
+        largest_scale_pixels.append(np.sum((scale_mask >> 1) & 1))
+
+    assert 0 < largest_scale_pixels[1] < largest_scale_pixels[0]
+
+
+def test_fits_masking_mac_without_flood_fill_uses_signal(fits_dir: Path) -> None:
+    """The mac is only used with the flood fill, so the base_snr_clip should be
+    applied to the signal image (5 everywhere) rather than the raw image (1)"""
+    masking_options = MaskingOptions(flood_fill=False, flood_fill_use_mac=True)
+    names = create_mask_from_fits(
+        fits_image_path=fits_dir / "image.fits",
+        fits_rms_path=fits_dir / "rms.fits",
+        fits_bkg_path=fits_dir / "bkg.fits",
+        masking_options=masking_options,
+    )
+
+    assert names.mask_fits is not None
+    assert np.sum(fits.getdata(names.mask_fits)) == np.prod(SHAPE)
+
+
+def test_fits_masking_mac_without_flood_fill_needs_rms_bkg(fits_dir: Path) -> None:
+    """Without the flood fill a signal image is needed. A missing RMS and
+    background should raise an error that points to the flood fill setting."""
+    masking_options = MaskingOptions(flood_fill=False, flood_fill_use_mac=True)
+
+    with pytest.raises(ValueError, match="flood_fill=True"):
+        create_mask_from_fits(
+            fits_image_path=fits_dir / "image.fits",
+            fits_rms_path=None,
+            fits_bkg_path=None,
+            masking_options=masking_options,
+        )

@@ -47,7 +47,7 @@ Changelog = "https://github.com/flint-crew/eye-patch/releases"
 
 
 [project.scripts]
-eye-patch = "eye_patch.masking:cli"
+eye-patch = "eye_patch.cli:cli"
 
 
 [dependency-groups]
@@ -57,6 +57,7 @@ dev = [
     "mypy>=1.19.1",
     "pre-commit>=4.5.1",
     "ruff>=0.14.14",
+    "scipy-stubs>=1.17.1.5",
     "ty>=0.0.13",
 ]
 docs = [
@@ -97,7 +98,7 @@ report.exclude_also = ['\.\.\.', 'if typing.TYPE_CHECKING:']
 
 [tool.mypy]
 files = ["eye_patch", "tests"]
-python_version = "3.11"
+python_version = "3.12"
 warn_unused_configs = true
 strict = true
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
@@ -111,7 +112,7 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
 [[tool.mypy.overrides]]
-module = "astropy.*"
+module = ["astropy.*", "radio_beam.*", "reproject.*"]
 ignore_missing_imports = true
 
 [tool.ruff]

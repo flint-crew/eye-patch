@@ -57,7 +57,7 @@ Or, from a local clone:
 
 ```bash
 git clone https://github.com/flint-crew/eye-patch.git
-cd flint
+cd eye-patch
 pip install -e .
 ```
 
@@ -66,6 +66,7 @@ installations. Reproducible builds can be created using `uv sync`:
 
 ```bash
 git clone https://github.com/flint-crew/eye-patch.git
+cd eye-patch
 uv venv
 uv sync
 ```
@@ -87,6 +88,6 @@ Or, using `uv`:
 
 ```bash
 git clone https://github.com/flint-crew/eye-patch.git
-cd flint
+cd eye-patch
 uv sync --group dev
 ```

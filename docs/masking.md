@@ -90,7 +90,9 @@ Should too small a region be supplied than typically large multi-scale features
 are less reliably assessed. Extensions can be made to detect when an the rolling
 box filter size is too small (e.g. by an imbalance of positive to negative
 pixels). A basic implementation of this adaptive boxcar size is implemented via
-the `MaskingOptions.flood_fill_use_mbd_adaptive` parameters.
+the `MaskingOptions.flood_fill_use_mac_adaptive_max_depth`,
+`MaskingOptions.flood_fill_use_mac_adaptive_step_factor` and
+`MaskingOptions.flood_fill_use_mac_adaptive_skew_delta` parameters.
 
 <!-- TODO: Need to include some image here -->
 
@@ -119,6 +121,15 @@ Activating the flood fill procedure is 'opt in' and activated via
 `MaskingOptions.flood_fill`. Further, the {math}`\mathrm{MAC}` statistic is only
 exposed when the flood fill is enabled.
 
+Islands of faint and diffuse emission that are never seeded may also be added
+via `MaskingOptions.grow_low_snr_island`. Pixels above
+`MaskingOptions.grow_low_snr_island_clip` are joined together, and islands made
+up of at least `MaskingOptions.grow_low_snr_island_size` pixels are added to the
+mask. When the {math}`\mathrm{MAC}` statistic is used the clip is an increase
+factor of the same clipping level used to seed and grow islands. For a 75 pixel
+box over noise this clipping level is around {math}`3.7\sigma`, so a factor near
+`0.5` is comparable to a {math}`1.75\sigma` clip of a signal map.
+
 <!-- TODO: Need to include some other image here -->
 
 ## Eroding output islands
@@ -145,13 +156,44 @@ to say islands need to be _larger_ for any pixels to remain as
 ### Multi-scale beam erosion
 
 basic routines to enable per-scale beam shape erosion are provided via
-`MaskingOptions.beam_shape_eroison_scales`. For each specified scale the
-restoring beam (the base shape in this erosion) is convolved with a circular
-gaussian of the specified scale (each scale is FWHM in pixels). The resulting
-beam is then evaluated in the basic process outlined above, eroding the clean
-islands at the native resolution to the clean islands at the specified scale.
+`MaskingOptions.beam_shape_erode_scales`. For each specified scale the restoring
+beam (the base shape in this erosion) is convolved with the circular gaussian
+that wsclean uses for that scale. The resulting beam is then evaluated in the
+basic process outlined above, eroding the clean islands at the native resolution
+to the clean islands at the specified scale.
+
+The scales are wsclean multi-scale scales in pixels, and are not the FWHM of the
+gaussian. wsclean (via radler) forms the gaussian of a scale with
+{math}`\sigma = 3/16` of the scale, which is a FWHM of about `0.44` of the
+scale. A scale of 16 pixels is therefore a gaussian with a FWHM of about 7
+pixels. These masks are intended for wsclean's gaussian scales
+(`-multiscale-shape gaussian`).
+
+```{note}
+Earlier versions of `eye-patch` used each scale as the FWHM of the gaussian.
+This made the erosion structure of a scale about 2.3 times wider than the
+wsclean gaussian of the same scale, so larger scales were eroded more than
+intended. Masks at larger scales are now larger than before, and settings tuned
+against the earlier behaviour may need to be revisited. The example image below
+was made with the earlier behaviour.
+
+To compare against the earlier behaviour set
+`MaskingOptions.beam_shape_erode_scales_as_fwhm` (or
+`--beam-shape-erode-scales-as-fwhm` on the CLI). Only the width of each scale is
+restored. Other fixes, such as centring the erosion structure on a pixel, still
+apply.
+```
+
 The clean mask at each scale is stored as 'bitmapped' value - except since these
-are floats the `n`'th scale is stored as `2**n` for each pixel.
+are floats the `n`'th scale is stored as `2**n` for each pixel. Scales are first
+sorted into ascending order, as wsclean reads the `n`'th bit as its `n`'th
+smallest scale.
+
+When more than one scale is specified this bitmapped mask is written to
+`<image>.scalemask.fits`. With a single scale, or without erosion, the mask is
+written to `<image>.mask.fits`. Should the image header be missing the beam
+information no erosion is performed, and the mask is also written to
+`<image>.mask.fits`.
 
 This is intended to provide a mechanism to ensure cleaning at larger scales
 occurs in well defined regions. An example of the erosion process for
@@ -176,12 +218,15 @@ Reducing this lower level clip would not consistently capture such faint
 extended structures, and pixels boosted by noise would often leak into the clean
 mask from legitimate islands (flying spaghetti monsters).
 
-The `--convol-first` option activates a routine where the base image is first
-put through an `open` filter before being convolved to some desired scale.
-Significance thresholding operations are then applied to this filtered image.
-Importantly, the `open` filter attempts to isolate small structures from larger
-ones. This is implemented through the combined usage of a minimum filter
-followed by a maximum filter (could be considered a high-pass filter).
+The `--convolve-first` option activates a routine where the base image is first
+put through an `open` filter before being convolved to some desired scale, using
+the same gaussian that wsclean uses for that scale. Significance thresholding
+operations are then applied to this filtered image. Importantly, the `open`
+filter attempts to isolate small structures from larger ones. This is
+implemented through the combined usage of a minimum filter followed by a maximum
+filter (could be considered a high-pass filter). The per-scale clean masks are
+always written to `<image>.scalemask.fits`, using the same bitmapped
+representation as the multi-scale beam erosion.
 
 ```{raw} html
 <video width="100%" controls>
@@ -192,15 +237,16 @@ followed by a maximum filter (could be considered a high-pass filter).
 
 Should this option be activated be aware that the seed and flood clipping
 threshold change - it should be possible to use lower limits. For example
-`flood_fill_positive_seed_clip=1.02` and `flood_file_positive_flood_clip=0.15`
-when the minimum absolute clip statistic is used.
+`flood_fill_positive_seed_clip=1.02` and `flood_fill_positive_flood_clip=0.15`
+when the minimum absolute clip statistic is used. At the native scale (a scale
+of `0`) the flood clip is raised to at least `0.8`.
 
 ## Accessing via the CLI
 
 The masking utility may be accessed via a CLI entrypoint:
 
 ```{argparse}
-:ref: eye_patch.masking.get_parser
+:ref: eye_patch.cli.get_parser
 :prog: eye_patch_masking
 ```
 
@@ -209,6 +255,6 @@ The masking utility may be accessed via a CLI entrypoint:
 Embedded below is the `eye-patch` `Options` class used to construct clean masks.
 Input values are validated by `pydantic` to ensure they are appropriately typed.
 
-```{literalinclude} ../eye_patch/masking.py
+```{literalinclude} ../eye_patch/options.py
 :pyobject: MaskingOptions
 ```
