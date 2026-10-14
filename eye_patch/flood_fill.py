@@ -3,7 +3,6 @@ and diffuse islands"""
 
 from __future__ import annotations
 
-import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -237,19 +236,3 @@ def create_flood_fill_mask(
         positive_dilated_mask[low_snr_mask] = True
 
     return positive_dilated_mask
-
-
-def reverse_negative_flood_fill(
-    base_image: NDArray[np.floating],
-    masking_options: MaskingOptions,
-) -> NDArray[np.bool]:
-    """Deprecated, use ``create_flood_fill_mask``. The negative island suppression
-    this name refers to has been removed."""
-    warnings.warn(
-        "reverse_negative_flood_fill is deprecated, use create_flood_fill_mask",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return create_flood_fill_mask(
-        base_image=base_image, masking_options=masking_options
-    )

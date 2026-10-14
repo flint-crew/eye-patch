@@ -15,6 +15,7 @@ from scipy.ndimage import (
 from scipy.signal import fftconvolve
 
 from eye_patch.logging import logger
+from eye_patch.pixel_utils import _has_beam_parameters
 
 if TYPE_CHECKING:
     from astropy.io import fits
@@ -175,11 +176,6 @@ def _sort_scales(scales: list[int] | tuple[int, ...]) -> list[int]:
             f"Scales {scales} are not in ascending order. Using {sorted_scales} so the n'th bit is the n'th smallest scale, as expected by wsclean"
         )
     return sorted_scales
-
-
-def _has_beam_parameters(fits_header: fits.Header) -> bool:
-    """Whether the header carries the beam keywords needed to construct a beam kernel"""
-    return all(key in fits_header for key in ["BMAJ", "BMIN", "BPA"])
 
 
 def create_multi_scale_erosion(

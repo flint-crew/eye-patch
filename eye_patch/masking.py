@@ -11,11 +11,12 @@ from astropy.io import fits
 from capn_crunch import add_options_to_parser, create_options_from_parser
 
 from eye_patch.convolve import create_convolved_erosion_mask
-from eye_patch.erosion import _has_beam_parameters, beam_shape_erode
+from eye_patch.erosion import beam_shape_erode
 from eye_patch.flood_fill import create_flood_fill_mask
 from eye_patch.logging import logger
 from eye_patch.naming import FITSMaskNames, create_fits_mask_names
 from eye_patch.options import MaskingOptions
+from eye_patch.pixel_utils import _has_beam_parameters
 from eye_patch.snr import _create_signal_from_rmsbkg
 
 # TODO: Need to remove a fair amount of old approaches, and deprecate some of the toy functions

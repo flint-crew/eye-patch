@@ -9,7 +9,6 @@ from eye_patch.flood_fill import (
     _verify_set_positive_seed_clip,
     create_flood_fill_mask,
     grow_low_snr_mask,
-    reverse_negative_flood_fill,
 )
 from eye_patch.options import MaskingOptions
 
@@ -55,23 +54,6 @@ def test_create_flood_fill_mask_mac_grows_low_snr_islands() -> None:
     assert np.mean(without_growth[diffuse]) < 0.1
     assert np.mean(with_growth[diffuse]) > 0.95
     assert np.mean(with_growth[~diffuse]) < 0.02
-
-
-def test_reverse_negative_flood_fill_is_deprecated() -> None:
-    """The old name still works for now, but warns and points to the new name"""
-    image = np.random.default_rng(3).normal(size=(100, 100))
-    image[40:60, 40:60] += 10.0
-    masking_options = MaskingOptions(flood_fill=True)
-
-    with pytest.warns(DeprecationWarning, match="create_flood_fill_mask"):
-        deprecated_mask = reverse_negative_flood_fill(
-            base_image=image, masking_options=masking_options
-        )
-
-    assert np.array_equal(
-        deprecated_mask,
-        create_flood_fill_mask(base_image=image, masking_options=masking_options),
-    )
 
 
 def test_verify_set_positive_seed_clip_with_nan() -> None:
