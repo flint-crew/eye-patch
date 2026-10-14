@@ -57,6 +57,7 @@ dev = [
     "mypy>=1.19.1",
     "pre-commit>=4.5.1",
     "ruff>=0.14.14",
+    "scipy-stubs>=1.17.1.5",
     "ty>=0.0.13",
 ]
 docs = [
@@ -111,7 +112,7 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
 [[tool.mypy.overrides]]
-module = "astropy.*"
+module = ["astropy.*", "radio_beam.*", "reproject.*"]
 ignore_missing_imports = true
 
 [tool.ruff]

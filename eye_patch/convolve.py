@@ -56,7 +56,9 @@ def convolve_image_by_scale(
     # A grey opening is a minimum then maximum filter, but correctly handles
     # the filter origin so even sized scales do not shift the image
     logger.info("Computing the open filter image")
-    image_data = grey_opening(input=image_data, size=scale, mode="wrap")
+    image_data = grey_opening(
+        input=image_data, size=(scale,) * image_data.ndim, mode="wrap"
+    )
 
     logger.info(f"Convoling with {scale=}")
 

@@ -77,7 +77,10 @@ def test_flood_fill_matches_binary_dilation(seeds_within_floor: bool) -> None:
         floor_mask = rng.random(size=(300, 300)) > 0.45
 
     expected = binary_dilation(
-        input=seed_mask, mask=floor_mask, iterations=-1, structure=np.ones((3, 3))
+        input=seed_mask,
+        mask=floor_mask,
+        iterations=-1,
+        structure=np.ones((3, 3), dtype=bool),
     )
     flood_mask = _flood_fill(seed_mask=seed_mask, floor_mask=floor_mask)
 

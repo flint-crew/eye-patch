@@ -42,10 +42,10 @@ def _select_large_islands(
         NDArray[np.bool]: Mask of the islands that were kept
     """
     island_mask: NDArray[np.bool] = scipy_binary_dilation(
-        input=candidate_mask, iterations=2, structure=np.ones((3, 3))
+        input=candidate_mask, iterations=2, structure=np.ones((3, 3), dtype=bool)
     )
     island_mask = scipy_binary_erosion(
-        input=island_mask, iterations=2, structure=np.ones((3, 3))
+        input=island_mask, iterations=2, structure=np.ones((3, 3), dtype=bool)
     )
 
     if region_mask is not None:
