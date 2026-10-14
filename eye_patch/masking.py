@@ -460,6 +460,9 @@ def extract_beam_mask_from_mosaic(
         msg = "Expected a mask_fits or scale_mask_fits FITS image to extract from"
         raise ValueError(msg)
 
+    assert fits_mosaic_mask_names.mask_fits is not None, (
+        "Expected a mask FITS image to extract from"
+    )
     mask_names = create_fits_mask_names(fits_image=fits_beam_image_path)
 
     with fits.open(fits_beam_image_path) as beam_image:
