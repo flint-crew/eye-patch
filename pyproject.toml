@@ -47,7 +47,7 @@ Changelog = "https://github.com/flint-crew/eye-patch/releases"
 
 
 [project.scripts]
-eye-patch = "eye_patch.masking:cli"
+eye-patch = "eye_patch.cli:cli"
 
 
 [dependency-groups]

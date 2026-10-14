@@ -10,35 +10,37 @@ import numpy as np
 import pytest
 from astropy.io import fits
 from astropy.wcs import WCS
+from capn_crunch import create_options_from_parser
 from radio_beam import Beam
 from scipy.ndimage import binary_dilation, binary_erosion, label, minimum_filter
 from scipy.signal import fftconvolve
 
-from eye_patch.logging import CustomFormatter, logger
-from eye_patch.masking import (
-    MaskingOptions,
-    _create_signal_from_rmsbkg,
-    _flood_fill,
-    _need_to_make_signal,
-    _verify_set_positive_seed_clip,
+from eye_patch.cli import cli, get_parser
+from eye_patch.convolve import convolve_image_by_scale
+from eye_patch.erosion import (
     beam_shape_erode,
-    cli,
-    convolve_image_by_scale,
     create_beam_mask_kernel,
-    create_boxcar_skew_mask,
-    create_flood_fill_mask,
     create_multi_scale_erosion,
-    create_options_from_parser,
-    create_snr_mask_from_fits,
-    extract_beam_mask_from_mosaic,
     fft_binary_erosion,
-    get_parser,
+)
+from eye_patch.extract import extract_beam_mask_from_mosaic
+from eye_patch.flood_fill import (
+    _flood_fill,
+    _verify_set_positive_seed_clip,
+    create_flood_fill_mask,
     grow_low_snr_mask,
-    minimum_absolute_clip,
-    minimum_absolute_clip_threshold,
     reverse_negative_flood_fill,
 )
+from eye_patch.logging import CustomFormatter, logger
+from eye_patch.mac import (
+    create_boxcar_skew_mask,
+    minimum_absolute_clip,
+    minimum_absolute_clip_threshold,
+)
+from eye_patch.masking import _need_to_make_signal, create_snr_mask_from_fits
 from eye_patch.naming import FITSMaskNames
+from eye_patch.options import MaskingOptions
+from eye_patch.snr import _create_signal_from_rmsbkg
 
 SHAPE = (100, 100)
 

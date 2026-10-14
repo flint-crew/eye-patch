@@ -246,7 +246,7 @@ of `0`) the flood clip is raised to at least `0.8`.
 The masking utility may be accessed via a CLI entrypoint:
 
 ```{argparse}
-:ref: eye_patch.masking.get_parser
+:ref: eye_patch.cli.get_parser
 :prog: eye_patch_masking
 ```
 
@@ -255,6 +255,6 @@ The masking utility may be accessed via a CLI entrypoint:
 Embedded below is the `eye-patch` `Options` class used to construct clean masks.
 Input values are validated by `pydantic` to ensure they are appropriately typed.
 
-```{literalinclude} ../eye_patch/masking.py
+```{literalinclude} ../eye_patch/options.py
 :pyobject: MaskingOptions
 ```
