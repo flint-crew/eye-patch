@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from astropy.io import fits
 
-from eye_patch.masking import _need_to_make_signal, create_snr_mask_from_fits
+from eye_patch.masking import _need_to_make_signal, create_mask_from_fits
 from eye_patch.naming import FITSMaskNames
 from eye_patch.options import MaskingOptions
 
@@ -43,7 +43,7 @@ def test_make_masking_options():
 
 def test_fits_masking(fits_dir):
     masking_options = MaskingOptions(flood_fill=False)
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=fits_dir / "image.fits",
         fits_rms_path=fits_dir / "rms.fits",
         fits_bkg_path=fits_dir / "bkg.fits",
@@ -80,7 +80,7 @@ def test_fits_masking_flood_fill_with_beam_erode(beam_fits_dir: Path) -> None:
     """The flood filled mask reaches ``beam_shape_erode``, which types its input
     as floats. This is the path the bool mask was travelling down."""
     masking_options = MaskingOptions(flood_fill=True, beam_shape_erode=True)
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=beam_fits_dir / "image.fits",
         fits_rms_path=beam_fits_dir / "rms.fits",
         fits_bkg_path=beam_fits_dir / "bkg.fits",
@@ -113,7 +113,7 @@ def test_fits_masking_beam_erode_multi_scale_writes_scalemask(
     masking_options = MaskingOptions(
         flood_fill=False, beam_shape_erode=True, beam_shape_erode_scales=(0, 8, 32)
     )
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=image_path,
         fits_rms_path=beam_fits_dir / "rms.fits",
         fits_bkg_path=beam_fits_dir / "bkg.fits",
@@ -138,7 +138,7 @@ def test_fits_masking_beam_erode_multi_scale_without_beam(fits_dir: Path) -> Non
     masking_options = MaskingOptions(
         flood_fill=False, beam_shape_erode=True, beam_shape_erode_scales=(0, 4, 8)
     )
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=fits_dir / "image.fits",
         fits_rms_path=fits_dir / "rms.fits",
         fits_bkg_path=fits_dir / "bkg.fits",
@@ -160,7 +160,7 @@ def test_fits_masking_signal_not_needed_is_not_returned(fits_dir: Path) -> None:
     masking_options = MaskingOptions(
         flood_fill=True, flood_fill_use_mac=True, flood_fill_positive_seed_clip=0.5
     )
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=fits_dir / "image.fits",
         fits_rms_path=None,
         fits_bkg_path=None,
@@ -179,7 +179,7 @@ def test_fits_masking_flood_fill_writes_float_mask(fits_dir: Path) -> None:
     rejects. Reported by Beth via #14, and not caught earlier because every other
     mask test runs with ``flood_fill=False``."""
     masking_options = MaskingOptions(flood_fill=True)
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=fits_dir / "image.fits",
         fits_rms_path=fits_dir / "rms.fits",
         fits_bkg_path=fits_dir / "bkg.fits",
@@ -197,7 +197,7 @@ def test_fits_masking_flood_fill_writes_float_mask(fits_dir: Path) -> None:
 
 def test_fits_masking_with_signal(fits_dir):
     masking_options = MaskingOptions(flood_fill=False)
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=fits_dir / "image.fits",
         fits_rms_path=fits_dir / "rms.fits",
         fits_bkg_path=fits_dir / "bkg.fits",
@@ -234,7 +234,7 @@ def test_fits_masking_scales_as_fwhm(
 
     largest_scale_pixels = []
     for scales_as_fwhm in (False, True):
-        names = create_snr_mask_from_fits(
+        names = create_mask_from_fits(
             fits_image_path=tmp_path / "image.fits",
             fits_rms_path=tmp_path / "rms.fits",
             fits_bkg_path=tmp_path / "bkg.fits",
@@ -256,7 +256,7 @@ def test_fits_masking_mac_without_flood_fill_uses_signal(fits_dir: Path) -> None
     """The mac is only used with the flood fill, so the base_snr_clip should be
     applied to the signal image (5 everywhere) rather than the raw image (1)"""
     masking_options = MaskingOptions(flood_fill=False, flood_fill_use_mac=True)
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=fits_dir / "image.fits",
         fits_rms_path=fits_dir / "rms.fits",
         fits_bkg_path=fits_dir / "bkg.fits",
@@ -273,7 +273,7 @@ def test_fits_masking_mac_without_flood_fill_needs_rms_bkg(fits_dir: Path) -> No
     masking_options = MaskingOptions(flood_fill=False, flood_fill_use_mac=True)
 
     with pytest.raises(ValueError, match="flood_fill=True"):
-        create_snr_mask_from_fits(
+        create_mask_from_fits(
             fits_image_path=fits_dir / "image.fits",
             fits_rms_path=None,
             fits_bkg_path=None,

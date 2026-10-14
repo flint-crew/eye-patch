@@ -29,9 +29,7 @@ def _need_to_make_signal(masking_options: MaskingOptions) -> bool:
     return not (masking_options.flood_fill and masking_options.flood_fill_use_mac)
 
 
-# TODO: Need to rename this function
-# TODO: This should be made into a dispatcher type function
-def create_snr_mask_from_fits(
+def create_native_resolution_mask(
     fits_image_path: Path,
     masking_options: MaskingOptions,
     fits_rms_path: Path | None,
@@ -40,6 +38,9 @@ def create_snr_mask_from_fits(
     overwrite: bool = True,
 ) -> FITSMaskNames:
     """Create a mask for an input FITS image based on a signal to noise given a corresponding pair of RMS and background FITS images.
+
+    The image is masked at its native resolution, which is the default approach of
+    ``create_mask_from_fits``.
 
     Internally should a signal image be needed it is computed as something akin to:
     > signal = (image - background) / rms
@@ -68,17 +69,6 @@ def create_snr_mask_from_fits(
     Returns:
         FITSMaskNames: Container describing the FITS images that were written, with unwritten products set to None. ``signal_fits`` is only set if ``create_signal_fits`` is True and a signal image was needed. When ``beam_shape_erode`` is used with multiple scales (and the beam is known) the bit-packed mask is written to ``scale_mask_fits``, otherwise the mask is written to ``mask_fits``.
     """
-    # Short cut to the convolve first
-    if masking_options.convolve_first:
-        logger.warning(
-            "Using the convolve then erode algorithm, some options may be ignored"
-        )
-        return create_convolved_erosion_mask(
-            fits_image_path=fits_image_path,
-            masking_options=masking_options,
-            overwrite=overwrite,
-        )
-
     mask_names = create_fits_mask_names(
         fits_image=fits_image_path, include_signal_path=create_signal_fits
     )
@@ -162,6 +152,51 @@ def create_snr_mask_from_fits(
     return FITSMaskNames(signal_fits=signal_fits, mask_fits=output_fits)
 
 
+def create_mask_from_fits(
+    fits_image_path: Path,
+    masking_options: MaskingOptions,
+    fits_rms_path: Path | None,
+    fits_bkg_path: Path | None,
+    create_signal_fits: bool = False,
+    overwrite: bool = True,
+) -> FITSMaskNames:
+    """Create a mask for an input FITS image, dispatching to the approach selected by
+    the ``masking_options``. Should ``convolve_first`` be set the image is first
+    convolved to each scale (see ``create_convolved_erosion_mask``), which ignores
+    ``fits_rms_path``, ``fits_bkg_path`` and ``create_signal_fits``. Otherwise the
+    image is masked at its native resolution (see ``create_native_resolution_mask``).
+
+    Args:
+        fits_image_path (Path): Path to the FITS file containing an image
+        masking_options (MaskingOptions): Configurable on the masking operation procedure.
+        fits_rms_path (Path | None, optional): Path to the FITS file with an RMS image corresponding to ``fits_image_path``. Defaults to None.
+        fits_bkg_path (Path | None, optional): Path to the FITS file with an background image corresponding to ``fits_image_path``. Defaults to None.
+        create_signal_fits (bool, optional): Create an output signal map. Defaults to False.
+        overwrite (bool): Passed to `fits.writeto`, and will overwrite files should they exist. Defaults to True.
+
+    Returns:
+        FITSMaskNames: Container describing the FITS images that were written by the selected approach, with unwritten products set to None
+    """
+    if masking_options.convolve_first:
+        logger.warning(
+            "Using the convolve then erode algorithm, some options may be ignored"
+        )
+        return create_convolved_erosion_mask(
+            fits_image_path=fits_image_path,
+            masking_options=masking_options,
+            overwrite=overwrite,
+        )
+
+    return create_native_resolution_mask(
+        fits_image_path=fits_image_path,
+        masking_options=masking_options,
+        fits_rms_path=fits_rms_path,
+        fits_bkg_path=fits_bkg_path,
+        create_signal_fits=create_signal_fits,
+        overwrite=overwrite,
+    )
+
+
 def get_parser(parser: ArgumentParser | None = None) -> ArgumentParser:
     """Add the arguments of the ``mask`` sub-command to a parser
 
@@ -204,7 +239,7 @@ def cli(args: Namespace | None = None) -> None:
         parser_namespace=args, options_class=MaskingOptions
     )
     # Dispatches to the convolve first approach if requested
-    create_snr_mask_from_fits(
+    create_mask_from_fits(
         fits_image_path=args.image,
         fits_rms_path=args.rms_fits,
         fits_bkg_path=args.bkg_fits,

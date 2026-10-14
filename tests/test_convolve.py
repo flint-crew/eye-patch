@@ -8,7 +8,7 @@ import pytest
 from astropy.io import fits
 
 from eye_patch.convolve import convolve_image_by_scale
-from eye_patch.masking import create_snr_mask_from_fits
+from eye_patch.masking import create_mask_from_fits
 from eye_patch.naming import FITSMaskNames
 from eye_patch.options import MaskingOptions
 
@@ -26,7 +26,7 @@ def test_fits_masking_convolve_first(fits_dir):
         flood_fill_positive_seed_clip=0.5,
         convolve_first=True,
     )
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=fits_dir / "image.fits",
         fits_bkg_path=None,
         fits_rms_path=None,
@@ -80,7 +80,7 @@ def test_fits_masking_convolve_first_sorts_scales(
         beam_shape_erode_scales=(4, 0),
     )
     with caplog.at_level(logging.WARNING, logger="eye-patch"):
-        create_snr_mask_from_fits(
+        create_mask_from_fits(
             fits_image_path=fits_dir / "image.fits",
             fits_bkg_path=None,
             fits_rms_path=None,
@@ -103,7 +103,7 @@ def test_fits_masking_convolve_first_with_nan(fits_dir: Path) -> None:
         convolve_first=True,
         beam_shape_erode_scales=(0, 4),
     )
-    names = create_snr_mask_from_fits(
+    names = create_mask_from_fits(
         fits_image_path=image_path,
         fits_bkg_path=None,
         fits_rms_path=None,

@@ -59,7 +59,7 @@ def extract_beam_mask_from_mosaic(
 ) -> FITSMaskNames:
     """Extract a region based on an existing FITS image from a masked FITS
     image. Here a masked FITS image is intended to be one created by
-    ``create_snr_mask_from_fits``. Both a ``mask_fits`` and a per-scale
+    ``create_mask_from_fits``. Both a ``mask_fits`` and a per-scale
     ``scale_mask_fits`` are extracted should they be provided, with the
     bitmapped values of the latter preserved.
 
