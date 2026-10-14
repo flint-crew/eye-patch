@@ -63,7 +63,23 @@ def _create_signal_from_rmsbkg(
     rms: Path | NDArray[np.floating],
     bkg: Path | NDArray[np.floating],
 ) -> NDArray[np.floating]:
-    """Form the signal image from the rms and background"""
+    """Generate a signal image from inputs. The final signal image is formed
+    using inplace operations to attempt to avoid duplication, which can become a
+    problem for large input images. Be aware of this should you pass arrays in
+    as inputs.
+
+    Args:
+        image (Path | NDArray[np.floating]): The imafe. If a fits file the data from the first extension are loaded.
+        rms (Path | NDArray[np.floating]): The background. If a files file the data from the first extension are loaded.
+        bkg (Path | NDArray[np.floating]): The rms. if a fits file the data from the first extension are loaded.
+
+    Returns:
+        NDArray[np.floating]: A signal image
+    """
+
+    # NOTE: This is similar to ``_get_signal_image`` but intend to work
+    # against larger images, performing operations inplace to avoid duplication.
+    # Really only intended for very large images (e.g. many GBs in size)
     logger.info("Creating signal image")
 
     if isinstance(image, Path):

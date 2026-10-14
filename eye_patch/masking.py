@@ -19,8 +19,6 @@ from eye_patch.options import MaskingOptions
 from eye_patch.pixel_utils import _has_beam_parameters
 from eye_patch.snr import _create_signal_from_rmsbkg
 
-# TODO: Need to remove a fair amount of old approaches, and deprecate some of the toy functions
-
 
 def _need_to_make_signal(masking_options: MaskingOptions) -> bool:
     """Isolated functions to consider whether a signal image is needed. The minimum
