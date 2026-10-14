@@ -467,8 +467,10 @@ def test_fits_masking_convolve_first(fits_dir):
     assert names.scale_mask_fits is not None
     assert names.scale_mask_fits.exists()
     assert names.signal_fits is None
+    assert names.mask_fits is None
 
     mask_data = fits.getdata(names.scale_mask_fits)
+    assert mask_data.dtype.kind == "f", "A bool mask cannot be written to FITS"
     valid = np.sum(mask_data)
     assert valid == np.prod(SHAPE)
 
@@ -483,10 +485,13 @@ def test_fits_masking(fits_dir):
     )
 
     assert isinstance(names, FITSMaskNames)
+    assert names.mask_fits is not None
     assert names.mask_fits.exists()
     assert names.signal_fits is None
+    assert names.scale_mask_fits is None
 
     mask_data = fits.getdata(names.mask_fits)
+    assert mask_data.dtype.kind == "f", "A bool mask cannot be written to FITS"
     valid = np.sum(mask_data)
     assert valid == np.prod(SHAPE)
 
@@ -517,10 +522,88 @@ def test_fits_masking_flood_fill_with_beam_erode(beam_fits_dir: Path) -> None:
     )
 
     assert isinstance(names, FITSMaskNames)
+    assert names.mask_fits is not None
     assert names.mask_fits.exists()
 
     mask_data = fits.getdata(names.mask_fits)
     assert mask_data.dtype.kind == "f", "A bool mask cannot be written to FITS"
+
+
+def test_fits_masking_beam_erode_multi_scale_writes_scalemask(
+    beam_fits_dir: Path,
+) -> None:
+    """Multiple erosion scales are bit-packed per pixel, and should be written
+    to the scale mask rather than the plain mask. A compact source is used so
+    that the larger scales erode away more of it, and each scale sets its own bit."""
+    image_path = beam_fits_dir / "image.fits"
+    header = fits.getheader(image_path)
+    y, x = np.mgrid[: SHAPE[0], : SHAPE[1]]
+    source = ((x - SHAPE[1] // 2) ** 2 + (y - SHAPE[0] // 2) ** 2) <= 10**2
+    # Signal is 10 on the source and 0 elsewhere given the rms and bkg images
+    fits.writeto(image_path, 0.5 + source * 1.0, header=header, overwrite=True)
+
+    masking_options = MaskingOptions(
+        flood_fill=False, beam_shape_erode=True, beam_shape_erode_scales=(0, 4, 8)
+    )
+    names = create_snr_mask_from_fits(
+        fits_image_path=image_path,
+        fits_rms_path=beam_fits_dir / "rms.fits",
+        fits_bkg_path=beam_fits_dir / "bkg.fits",
+        masking_options=masking_options,
+    )
+
+    assert names.mask_fits is None
+    assert names.signal_fits is None
+    assert names.scale_mask_fits is not None
+    assert names.scale_mask_fits.exists()
+    assert not (beam_fits_dir / "image.mask.fits").exists()
+
+    mask_data = fits.getdata(names.scale_mask_fits)
+    assert mask_data.dtype.kind == "f", "A bool mask cannot be written to FITS"
+    # Larger scales are nested within the smaller ones: 0b001, 0b011, 0b111
+    assert set(np.unique(mask_data)) == {0.0, 1.0, 3.0, 7.0}
+
+
+def test_fits_masking_beam_erode_multi_scale_without_beam(fits_dir: Path) -> None:
+    """Without beam parameters no erosion is performed, so the plain mask should
+    be written rather than a misleading scale mask."""
+    masking_options = MaskingOptions(
+        flood_fill=False, beam_shape_erode=True, beam_shape_erode_scales=(0, 4, 8)
+    )
+    names = create_snr_mask_from_fits(
+        fits_image_path=fits_dir / "image.fits",
+        fits_rms_path=fits_dir / "rms.fits",
+        fits_bkg_path=fits_dir / "bkg.fits",
+        masking_options=masking_options,
+    )
+
+    assert names.scale_mask_fits is None
+    assert names.mask_fits is not None
+    assert names.mask_fits.exists()
+    assert not (fits_dir / "image.scalemask.fits").exists()
+
+    mask_data = fits.getdata(names.mask_fits)
+    assert set(np.unique(mask_data)) <= {0.0, 1.0}
+
+
+def test_fits_masking_signal_not_needed_is_not_returned(fits_dir: Path) -> None:
+    """The minimum absolute clip does not need a signal image, so even when one
+    is requested it is not written and should not be returned."""
+    masking_options = MaskingOptions(
+        flood_fill=True, flood_fill_use_mac=True, flood_fill_positive_seed_clip=0.5
+    )
+    names = create_snr_mask_from_fits(
+        fits_image_path=fits_dir / "image.fits",
+        fits_rms_path=None,
+        fits_bkg_path=None,
+        masking_options=masking_options,
+        create_signal_fits=True,
+    )
+
+    assert names.signal_fits is None
+    assert not (fits_dir / "image.signal.fits").exists()
+    assert names.mask_fits is not None
+    assert names.mask_fits.exists()
 
 
 def test_fits_masking_flood_fill_writes_float_mask(fits_dir: Path) -> None:
@@ -536,6 +619,7 @@ def test_fits_masking_flood_fill_writes_float_mask(fits_dir: Path) -> None:
     )
 
     assert isinstance(names, FITSMaskNames)
+    assert names.mask_fits is not None
     assert names.mask_fits.exists()
 
     mask_data = fits.getdata(names.mask_fits)
@@ -554,6 +638,7 @@ def test_fits_masking_with_signal(fits_dir):
     )
 
     assert isinstance(names, FITSMaskNames)
+    assert names.mask_fits is not None
     assert names.mask_fits.exists()
     assert names.signal_fits is not None
     assert names.signal_fits.exists()

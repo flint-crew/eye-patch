@@ -37,7 +37,7 @@ __all__ = ["create_options_from_parser"]
 # during fits file creation.
 MaskLike: TypeAlias = NDArray[np.floating]
 
-logger = logging.getLogger("__name__")
+logger = logging.getLogger("eye-patch")
 
 
 class MaskingOptions(BaseOptions):
@@ -211,6 +211,11 @@ def fft_binary_erosion(
     return np.reshape(erosion_mask, original_shape)
 
 
+def _has_beam_parameters(fits_header: fits.Header) -> bool:
+    """Whether the header carries the beam keywords needed to construct a beam kernel"""
+    return all(key in fits_header for key in ["BMAJ", "BMIN", "BPA"])
+
+
 def create_multi_scale_erosion(
     mask: MaskLike,
     fits_header: fits.Header,
@@ -229,7 +234,7 @@ def create_multi_scale_erosion(
         NDArray[np.bool]: The eroded mask
     """
     # Trust no one on the high seas, mate
-    if not all(key in fits_header for key in ["BMAJ", "BMIN", "BPA"]):
+    if not _has_beam_parameters(fits_header):
         logger.warning(
             "Beam parameters missing. Not performing the beam shape erosion. "
         )
@@ -306,7 +311,7 @@ def beam_shape_erode(
         n'th scale is stored as the n'th bit.
     """
 
-    if not all(key in fits_header for key in ["BMAJ", "BMIN", "BPA"]):
+    if not _has_beam_parameters(fits_header):
         logger.warning(
             "Beam parameters missing. Not performing the beam shape erosion. "
         )
@@ -356,6 +361,9 @@ def extract_beam_mask_from_mosaic(
     # try to construct it ourselves. The last thing that this pirate wants is
     # to run the imager in a dry-run type mode  mode purely for the WCS.
 
+    assert fits_mosaic_mask_names.mask_fits is not None, (
+        "Expected a mask FITS image to extract from"
+    )
     mask_names = create_fits_mask_names(fits_image=fits_beam_image_path)
 
     with fits.open(fits_beam_image_path) as beam_image:
@@ -382,7 +390,7 @@ def extract_beam_mask_from_mosaic(
 
     fits.writeto(mask_names.mask_fits, extract_image[0].astype(np.int32), header)
 
-    return mask_names
+    return FITSMaskNames(mask_fits=mask_names.mask_fits)
 
 
 def _get_signal_image(
@@ -852,7 +860,7 @@ def create_snr_mask_from_fits(
         overwrite (bool): Passed to `fits.writeto`, and will overwrite files should they exist. Defaults to True.
 
     Returns:
-        FITSMaskNames: Container describing the signal and mask FITS image paths. If ``create_signal_path`` is None, then the ``signal_fits`` attribute will be None.
+        FITSMaskNames: Container describing the FITS images that were written, with unwritten products set to None. ``signal_fits`` is only set if ``create_signal_fits`` is True and a signal image was needed. When ``beam_shape_erode`` is used with multiple scales (and the beam is known) the bit-packed mask is written to ``scale_mask_fits``, otherwise the mask is written to ``mask_fits``.
     """
     # Short cut to the convolve first
     if masking_options.convolve_first:
@@ -872,6 +880,7 @@ def create_snr_mask_from_fits(
         fits_header = fits_image[0].header
         signal_data = fits_image[0].data
 
+    signal_fits: Path | None = None
     if _need_to_make_signal(masking_options=masking_options):
         assert isinstance(fits_rms_path, Path) and isinstance(fits_bkg_path, Path), (  # noqa: PT018
             "Expected paths for input RMS and bkg FITS files"
@@ -888,6 +897,7 @@ def create_snr_mask_from_fits(
                 header=fits_header,
                 overwrite=overwrite,
             )
+            signal_fits = mask_names.signal_fits
 
     # Following the help in wsclean:
     # WSClean accepts masks in CASA format and in fits file format. A mask is a
@@ -915,15 +925,28 @@ def create_snr_mask_from_fits(
             scales=masking_options.beam_shape_erode_scales,
         )
 
-    logger.info(f"Writing {mask_names.mask_fits}")
+    # Multiple erosion scales are bit-packed per pixel, so belong in the scale mask.
+    # Without beam parameters no erosion happens and the mask is a plain 0/1 mask
+    scales = masking_options.beam_shape_erode_scales
+    is_scale_mask = (
+        masking_options.beam_shape_erode
+        and _has_beam_parameters(fits_header)
+        and (scales is not None and len(scales) > 1)
+    )
+    output_fits = mask_names.scale_mask_fits if is_scale_mask else mask_names.mask_fits
+
+    logger.info(f"Writing {output_fits}")
     fits.writeto(
-        filename=mask_names.mask_fits,
+        filename=output_fits,
         data=mask_data,
         header=fits_header,
         overwrite=overwrite,
     )
 
-    return mask_names
+    # Only report the files that were written
+    if is_scale_mask:
+        return FITSMaskNames(signal_fits=signal_fits, scale_mask_fits=output_fits)
+    return FITSMaskNames(signal_fits=signal_fits, mask_fits=output_fits)
 
 
 def convolve_image_by_scale(
@@ -1020,7 +1043,7 @@ def create_convolved_erosion_mask(
     )
     logger.info(f"Will be processing {scales=}")
 
-    output_mask = np.zeros_like(base_image)
+    output_mask = np.zeros(base_image.shape, dtype=np.float32)
 
     for index, scale in enumerate(scales):
         convolved_image = base_image.copy()
@@ -1087,7 +1110,7 @@ def create_convolved_erosion_mask(
         data=output_mask.reshape(original_shape),
         overwrite=True,
     )
-    return mask_names
+    return FITSMaskNames(scale_mask_fits=mask_names.scale_mask_fits)
 
 
 def get_parser() -> ArgumentParser:
