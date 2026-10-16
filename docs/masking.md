@@ -96,13 +96,43 @@ negative pixels). A basic adaptive boxcar size is implemented via the
 `MaskingOptions.mac_adaptive_step_factor` and
 `MaskingOptions.mac_adaptive_skew_delta` parameters.
 
+<!-- The figures are made with docs/scripts/adaptive_mac_figure.py -->
+
+```{figure} _static/adaptive_mac_light.png
+:alt: A cut through an image, where a fixed box gives a clip level that rises far above a wide, bright source and leaves its middle unmasked, while the adaptive box keeps the clip level at the noise and masks the whole source.
+:figclass: only-light
+:width: 100%
+
+A cut through an image of unit noise, with a compact source and a bright source
+that is wider than the default 75-pixel box, clipped by the
+{math}`\mathrm{MAC}` with an increase factor of 4. With a fixed box, the rolling
+minimum in the middle of the wide source only sees the source, so the clip level
+rises above it and the middle of the source is not masked. The adaptive box
+(`mac_adaptive_max_depth=3`) doubles in size wherever positive pixels dominate
+it, so the clip level stays at the noise and the whole source is masked. Away
+from the wide source the two clip levels are the same, and their lines overlap.
+```
+
+```{figure} _static/adaptive_mac_dark.png
+:alt: A cut through an image, where a fixed box gives a clip level that rises far above a wide, bright source and leaves its middle unmasked, while the adaptive box keeps the clip level at the noise and masks the whole source.
+:figclass: only-dark
+:width: 100%
+
+A cut through an image of unit noise, with a compact source and a bright source
+that is wider than the default 75-pixel box, clipped by the
+{math}`\mathrm{MAC}` with an increase factor of 4. With a fixed box, the rolling
+minimum in the middle of the wide source only sees the source, so the clip level
+rises above it and the middle of the source is not masked. The adaptive box
+(`mac_adaptive_max_depth=3`) doubles in size wherever positive pixels dominate
+it, so the clip level stays at the noise and the whole source is masked. Away
+from the wide source the two clip levels are the same, and their lines overlap.
+```
+
 The {math}`\mathrm{MAC}` is selected with `MaskingOptions.use_mac`, and may be
 used with or without the flood fill (see below). Without the flood fill, the
 increase factor {math}`P` is `MaskingOptions.base_clip`, and with it, the seed
 and flood clips take its place. As the {math}`\mathrm{MAC}` operates on the
 image itself, no background or noise images are needed.
-
-<!-- TODO: Need to include some image here -->
 
 ## Reverse flood filling
 
