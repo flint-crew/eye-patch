@@ -69,15 +69,15 @@ def _create_signal_from_rmsbkg(
     as inputs.
 
     Args:
-        image (Path | NDArray[np.floating]): The imafe. If a fits file the data from the first extension are loaded.
-        rms (Path | NDArray[np.floating]): The background. If a files file the data from the first extension are loaded.
-        bkg (Path | NDArray[np.floating]): The rms. if a fits file the data from the first extension are loaded.
+        image (Path | NDArray[np.floating]): The image. If a fits file the data from the first extension are loaded.
+        rms (Path | NDArray[np.floating]): The rms. If a fits file the data from the first extension are loaded.
+        bkg (Path | NDArray[np.floating]): The background. If a fits file the data from the first extension are loaded.
 
     Returns:
         NDArray[np.floating]: A signal image
     """
 
-    # NOTE: This is similar to ``_get_signal_image`` but intend to work
+    # NOTE: This is similar to ``_get_signal_image`` but intended to work
     # against larger images, performing operations inplace to avoid duplication.
     # Really only intended for very large images (e.g. many GBs in size)
     logger.info("Creating signal image")
