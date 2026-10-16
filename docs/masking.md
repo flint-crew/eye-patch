@@ -317,6 +317,10 @@ table also maps a Flint strategy file onto `eye-patch`.
   already were.
 - **Masks made without the flood fill are written as 32-bit floats**, rather
   than 64-bit floats. Their values are unchanged.
+- **Masks extracted from a mosaic take the shape of their template image.**
+  Should the template carry degenerate frequency and Stokes axes, as images
+  written by wsclean do, the extracted masks now carry them too, rather than
+  always being two-dimensional. Their values are unchanged.
 
 Settings that set `flood_fill_use_mac` or `grow_low_snr_island` without
 `flood_fill` now produce a different mask, and should be revisited. The

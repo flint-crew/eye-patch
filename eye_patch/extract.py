@@ -77,7 +77,7 @@ def extract_beam_mask_from_mosaic(
         ValueError: Raised when neither a ``mask_fits`` or ``scale_mask_fits`` is provided to extract from
 
     Returns:
-        FITSMaskNames: Container with the extracted masks, which are named after ``fits_beam_image_path``. Masks that were not extracted are None.
+        FITSMaskNames: Container with the extracted masks, which are named after ``fits_beam_image_path``. Masks that were not extracted are None. The masks take the shape of the template should its only other axes be degenerate (e.g. a single frequency and Stokes), and are otherwise two-dimensional.
     """
 
     if (
@@ -91,7 +91,16 @@ def extract_beam_mask_from_mosaic(
 
     with fits.open(fits_beam_image_path) as beam_image:
         header = beam_image[0].header
-        beam_image_shape = beam_image[0].data.shape[-2:]
+        template_shape = beam_image[0].data.shape
+
+    # Masks are extracted onto the celestial pixel grid of the template, and keep
+    # any degenerate axes of the template so the shapes match
+    beam_image_shape = template_shape[-2:]
+    output_shape = (
+        template_shape
+        if all(size == 1 for size in template_shape[:-2])
+        else beam_image_shape
+    )
 
     beam_mask_fits: Path | None = None
     if fits_mosaic_mask_names.mask_fits is not None:
@@ -103,7 +112,9 @@ def extract_beam_mask_from_mosaic(
         logger.info("Clipping extract mask results (interpolation errors)")
         fits.writeto(
             filename=mask_names.mask_fits,
-            data=np.clip(extract_image, 0.0, 1.0).astype(np.int32),
+            data=np.clip(extract_image, 0.0, 1.0)
+            .astype(np.int32)
+            .reshape(output_shape),
             header=header,
             overwrite=overwrite,
         )
@@ -119,7 +130,7 @@ def extract_beam_mask_from_mosaic(
         )
         fits.writeto(
             filename=mask_names.scale_mask_fits,
-            data=extract_scale_image.astype(np.float32),
+            data=extract_scale_image.astype(np.float32).reshape(output_shape),
             header=header,
             overwrite=overwrite,
         )
