@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pytest
@@ -335,3 +335,76 @@ def test_create_island_mask_mac_grows_low_snr_islands(flood_fill: bool) -> None:
     assert np.mean(without_growth[diffuse]) < 0.1
     assert np.mean(with_growth[diffuse]) > 0.95
     assert np.mean(with_growth[~diffuse]) < 0.02
+
+
+# Each approach to masking, which should all keep degenerate axes of the image
+DEGENERATE_AXES_OPTIONS: dict[str, dict[str, Any]] = {
+    "snr_clip": {},
+    "mac_clip": {"use_mac": True},
+    "mac_clip_adaptive": {"use_mac": True, "mac_adaptive_max_depth": 2},
+    "flood_fill_snr": {"flood_fill": True},
+    "flood_fill_mac": {"flood_fill": True, "use_mac": True},
+    "low_snr_islands": {"grow_low_snr_island": True},
+    "low_snr_islands_mac": {
+        "use_mac": True,
+        "grow_low_snr_island": True,
+        "grow_low_snr_island_clip": 0.5,
+    },
+    "flood_fill_low_snr_islands": {"flood_fill": True, "grow_low_snr_island": True},
+    "beam_erode": {"flood_fill": True, "beam_shape_erode": True},
+    "beam_erode_multi_scale": {
+        "flood_fill": True,
+        "beam_shape_erode": True,
+        "multiscale_scales": (0, 8),
+    },
+    "convolve_first": {"convolve_first": True},
+    "convolve_first_multi_scale": {"convolve_first": True, "multiscale_scales": (0, 8)},
+}
+
+
+@pytest.mark.parametrize(
+    "options",
+    list(DEGENERATE_AXES_OPTIONS.values()),
+    ids=list(DEGENERATE_AXES_OPTIONS),
+)
+def test_fits_masking_with_degenerate_axes(
+    tmp_path: Path, beam_fits_header: fits.Header, options: dict[str, Any]
+) -> None:
+    """An image with degenerate frequency and Stokes axes, as written by wsclean,
+    should be masked as its two-dimensional equivalent, with every product taking
+    the shape of the image"""
+    yy, xx = np.mgrid[: SHAPE[0], : SHAPE[1]]
+    image = (
+        np.random.default_rng(4).normal(size=SHAPE)
+        + (((xx - 30) ** 2 + (yy - 30) ** 2) <= 8**2) * 50.0
+        + (((xx - 65) ** 2 + (yy - 65) ** 2) <= 25**2) * 2.5
+    )
+
+    products = {}
+    for shape in (SHAPE, (1, 1, *SHAPE)):
+        directory = tmp_path / f"{len(shape)}d"
+        directory.mkdir()
+        fits.writeto(
+            directory / "image.fits", image.reshape(shape), header=beam_fits_header
+        )
+        fits.writeto(directory / "rms.fits", np.ones(shape))
+        fits.writeto(directory / "bkg.fits", np.zeros(shape))
+        names = create_mask_from_fits(
+            fits_image_path=directory / "image.fits",
+            fits_rms_path=directory / "rms.fits",
+            fits_bkg_path=directory / "bkg.fits",
+            masking_options=MaskingOptions(**options),
+            create_signal_fits=True,
+        )
+        products[len(shape)] = {
+            field: fits.getdata(path)
+            for field, path in names._asdict().items()
+            if path is not None
+        }
+        assert all(data.shape == shape for data in products[len(shape)].values())
+
+    assert products[2].keys() == products[4].keys()
+    for field, data in products[2].items():
+        assert np.array_equal(data, np.squeeze(products[4][field]))
+    mask_field = "scale_mask_fits" if "scale_mask_fits" in products[2] else "mask_fits"
+    assert np.any(products[2][mask_field])
