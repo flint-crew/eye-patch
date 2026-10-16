@@ -142,6 +142,17 @@ For a 75-pixel box over noise, this clipping level is around {math}`3.7\sigma`,
 so a factor near `0.5` is comparable to a {math}`1.75\sigma` clip of a signal
 map.
 
+This option is 'opt in', and complements rather than replaces the flood fill or
+`MaskingOptions.base_clip`. Its islands are formed separately from the rest of
+the mask, using only `MaskingOptions.grow_low_snr_island_clip` and
+`MaskingOptions.grow_low_snr_island_min_pixels` rather than the seed and flood
+clips, and are then added to the mask. As it only ever adds pixels, it can go
+awry. Anything it picks up in error, such as a large region of noise, artefacts
+or poorly subtracted background above its clip, stays in the mask, as nothing
+later removes such an island. The beam erosion (see below), should it be used,
+only trims the edges of islands. Care should be taken with a low clip or a small
+minimum island size, as both make such errors more likely.
+
 <!-- TODO: Need to include some other image here -->
 
 ## Eroding output islands
@@ -314,7 +325,15 @@ so this table also maps a Flint strategy file onto `eye-patch`.
   needed.
 - **Islands of faint and diffuse emission no longer need the flood fill.**
   `grow_low_snr_island` adds its islands to the mask whether or not `flood_fill`
-  is set. Previously it was silently ignored without the flood fill.
+  is set. Previously it was silently ignored without the flood fill. It remains
+  opt in, and complements rather than replaces the flood fill or `base_clip`.
+  Its islands are formed separately, from `grow_low_snr_island_clip` and
+  `grow_low_snr_island_min_pixels` rather than the seed and flood clips, and are
+  then added to the mask. As it only ever adds pixels, it can go awry: anything
+  it picks up in error, such as a large region of noise, artefacts or poorly
+  subtracted background above its clip, stays in the mask. Nothing later removes
+  such an island, as the beam erosion, should it be used, only trims the edges
+  of islands.
 - **`base_clip` follows the statistic.** With `use_mac`, it is an increase
   factor of the {math}`\mathrm{MAC}` clipping level, as `seed_clip` and
   `flood_clip` already were.
