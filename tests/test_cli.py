@@ -28,12 +28,12 @@ def test_arg_parser_cli_and_masking_options():
             "--bkg-fits",
             "bkg",
             "--flood-fill",
-            "--flood-fill-positive-seed-clip",
+            "--seed-clip",
             "10",
-            "--flood-fill-positive-flood-clip",
+            "--flood-clip",
             "1.",
-            "--flood-fill-use-mac",
-            "--flood-fill-use-mac-box-size",
+            "--use-mac",
+            "--mac-box-size",
             "100",
         ]
     )
@@ -42,9 +42,9 @@ def test_arg_parser_cli_and_masking_options():
     )
     assert isinstance(masking_options, MaskingOptions)
     assert masking_options.flood_fill
-    assert masking_options.flood_fill_use_mac
-    assert masking_options.flood_fill_positive_seed_clip == 10.0
-    assert masking_options.flood_fill_positive_flood_clip == 1.0
+    assert masking_options.use_mac
+    assert masking_options.seed_clip == 10.0
+    assert masking_options.flood_clip == 1.0
 
 
 def test_arg_parser_cli_and_masking_options_for_multiscale():
@@ -56,7 +56,7 @@ def test_arg_parser_cli_and_masking_options_for_multiscale():
         args=[
             "mask",
             "img",
-            "--beam-shape-erode-scales",
+            "--multiscale-scales",
             "0",
             "1",
             "2",
@@ -66,12 +66,12 @@ def test_arg_parser_cli_and_masking_options_for_multiscale():
             "--bkg-fits",
             "bkg",
             "--flood-fill",
-            "--flood-fill-positive-seed-clip",
+            "--seed-clip",
             "10",
-            "--flood-fill-positive-flood-clip",
+            "--flood-clip",
             "1.",
-            "--flood-fill-use-mac",
-            "--flood-fill-use-mac-box-size",
+            "--use-mac",
+            "--mac-box-size",
             "100",
         ]
     )
@@ -79,8 +79,8 @@ def test_arg_parser_cli_and_masking_options_for_multiscale():
         parser_namespace=args, options_class=MaskingOptions
     )
     assert isinstance(masking_options, MaskingOptions)
-    assert isinstance(masking_options.beam_shape_erode_scales, tuple)
-    assert masking_options.beam_shape_erode_scales == (0, 1, 2, 4)
+    assert isinstance(masking_options.multiscale_scales, tuple)
+    assert masking_options.multiscale_scales == (0, 1, 2, 4)
     assert not masking_options.beam_shape_erode_scales_as_fwhm
 
 

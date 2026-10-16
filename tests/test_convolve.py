@@ -22,8 +22,8 @@ def test_fits_masking_convolve_first(fits_dir):
     """A basic check to see if the convolve first algorithm is working, where
     working be no errors mate"""
     masking_options = MaskingOptions(
-        flood_fill_use_mac=True,
-        flood_fill_positive_seed_clip=0.5,
+        use_mac=True,
+        seed_clip=0.5,
         convolve_first=True,
     )
     names = create_mask_from_fits(
@@ -74,10 +74,10 @@ def test_fits_masking_convolve_first_sorts_scales(
 ) -> None:
     """The convolve first approach also assigns bits in ascending scale order"""
     masking_options = MaskingOptions(
-        flood_fill_use_mac=True,
-        flood_fill_positive_seed_clip=0.5,
+        use_mac=True,
+        seed_clip=0.5,
         convolve_first=True,
-        beam_shape_erode_scales=(4, 0),
+        multiscale_scales=(4, 0),
     )
     with caplog.at_level(logging.WARNING, logger="eye-patch"):
         create_mask_from_fits(
@@ -98,10 +98,10 @@ def test_fits_masking_convolve_first_with_nan(fits_dir: Path) -> None:
     fits.writeto(image_path, image, overwrite=True)
 
     masking_options = MaskingOptions(
-        flood_fill_use_mac=True,
-        flood_fill_positive_seed_clip=0.5,
+        use_mac=True,
+        seed_clip=0.5,
         convolve_first=True,
-        beam_shape_erode_scales=(0, 4),
+        multiscale_scales=(0, 4),
     )
     names = create_mask_from_fits(
         fits_image_path=image_path,

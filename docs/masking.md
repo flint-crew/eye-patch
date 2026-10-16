@@ -90,9 +90,9 @@ Should too small a region be supplied than typically large multi-scale features
 are less reliably assessed. Extensions can be made to detect when an the rolling
 box filter size is too small (e.g. by an imbalance of positive to negative
 pixels). A basic implementation of this adaptive boxcar size is implemented via
-the `MaskingOptions.flood_fill_use_mac_adaptive_max_depth`,
-`MaskingOptions.flood_fill_use_mac_adaptive_step_factor` and
-`MaskingOptions.flood_fill_use_mac_adaptive_skew_delta` parameters.
+the `MaskingOptions.mac_adaptive_max_depth`,
+`MaskingOptions.mac_adaptive_step_factor` and
+`MaskingOptions.mac_adaptive_skew_delta` parameters.
 
 <!-- TODO: Need to include some image here -->
 
@@ -111,11 +111,11 @@ There are two steps to this process:
 
 1. _Initial siginficant island detection_: The statistic of choice (see above)
    is executed and all pixels above the threshold are marketed as pixels to
-   clean. We can set this via `MaskingOptions.flood_fill_positive_seed_clip`
+   clean. We can set this via `MaskingOptions.seed_clip`
 2. _Growing the initial set of islands_; Islands that are identified as
    significant go through a dilation process, where the dilation process is
    restricted to limit it only to pixels above the lower level threshold. This
-   lower level clip is set via `MaskingOptions.flood_fill_positive_flood_clip`.
+   lower level clip is set via `MaskingOptions.flood_clip`.
 
 Activating the flood fill procedure is 'opt in' and activated via
 `MaskingOptions.flood_fill`. Further, the {math}`\mathrm{MAC}` statistic is only
@@ -124,11 +124,11 @@ exposed when the flood fill is enabled.
 Islands of faint and diffuse emission that are never seeded may also be added
 via `MaskingOptions.grow_low_snr_island`. Pixels above
 `MaskingOptions.grow_low_snr_island_clip` are joined together, and islands made
-up of at least `MaskingOptions.grow_low_snr_island_size` pixels are added to the
-mask. When the {math}`\mathrm{MAC}` statistic is used the clip is an increase
-factor of the same clipping level used to seed and grow islands. For a 75 pixel
-box over noise this clipping level is around {math}`3.7\sigma`, so a factor near
-`0.5` is comparable to a {math}`1.75\sigma` clip of a signal map.
+up of at least `MaskingOptions.grow_low_snr_island_min_pixels` pixels are added
+to the mask. When the {math}`\mathrm{MAC}` statistic is used the clip is an
+increase factor of the same clipping level used to seed and grow islands. For a
+75 pixel box over noise this clipping level is around {math}`3.7\sigma`, so a
+factor near `0.5` is comparable to a {math}`1.75\sigma` clip of a signal map.
 
 <!-- TODO: Need to include some other image here -->
 
@@ -156,11 +156,11 @@ to say islands need to be _larger_ for any pixels to remain as
 ### Multi-scale beam erosion
 
 basic routines to enable per-scale beam shape erosion are provided via
-`MaskingOptions.beam_shape_erode_scales`. For each specified scale the restoring
-beam (the base shape in this erosion) is convolved with the circular gaussian
-that wsclean uses for that scale. The resulting beam is then evaluated in the
-basic process outlined above, eroding the clean islands at the native resolution
-to the clean islands at the specified scale.
+`MaskingOptions.multiscale_scales`. For each specified scale the restoring beam
+(the base shape in this erosion) is convolved with the circular gaussian that
+wsclean uses for that scale. The resulting beam is then evaluated in the basic
+process outlined above, eroding the clean islands at the native resolution to
+the clean islands at the specified scale.
 
 The scales are wsclean multi-scale scales in pixels, and are not the FWHM of the
 gaussian. wsclean (via radler) forms the gaussian of a scale with
@@ -237,9 +237,9 @@ representation as the multi-scale beam erosion.
 
 Should this option be activated be aware that the seed and flood clipping
 threshold change - it should be possible to use lower limits. For example
-`flood_fill_positive_seed_clip=1.02` and `flood_fill_positive_flood_clip=0.15`
-when the minimum absolute clip statistic is used. At the native scale (a scale
-of `0`) the flood clip is raised to at least `0.8`.
+`seed_clip=1.02` and `flood_clip=0.15` when the minimum absolute clip statistic
+is used. At the native scale (a scale of `0`) the flood clip is raised to at
+least `0.8`.
 
 ## Accessing via the CLI
 
@@ -258,3 +258,33 @@ Input values are validated by `pydantic` to ensure they are appropriately typed.
 ```{literalinclude} ../eye_patch/options.py
 :pyobject: MaskingOptions
 ```
+
+## Changes from earlier versions
+
+### Renamed options
+
+Several `MaskingOptions` were renamed so that each name describes what the
+option does, rather than where it was first used. The table below maps each
+earlier name to its new name.
+
+| Earlier name                              | New name                         |
+| ----------------------------------------- | -------------------------------- |
+| `base_snr_clip`                           | `base_clip`                      |
+| `flood_fill_positive_seed_clip`           | `seed_clip`                      |
+| `flood_fill_positive_flood_clip`          | `flood_clip`                     |
+| `flood_fill_use_mac`                      | `use_mac`                        |
+| `flood_fill_use_mac_box_size`             | `mac_box_size`                   |
+| `flood_fill_use_mac_adaptive_step_factor` | `mac_adaptive_step_factor`       |
+| `flood_fill_use_mac_adaptive_skew_delta`  | `mac_adaptive_skew_delta`        |
+| `flood_fill_use_mac_adaptive_max_depth`   | `mac_adaptive_max_depth`         |
+| `beam_shape_erode_scales`                 | `multiscale_scales`              |
+| `grow_low_snr_island_size`                | `grow_low_snr_island_min_pixels` |
+
+The CLI flags follow the same mapping, with dashes in place of underscores. For
+example, `--flood-fill-positive-seed-clip` is now `--seed-clip`.
+
+Earlier names are no longer accepted. Using one in a strategy file, or when
+creating `MaskingOptions`, raises a validation error rather than being silently
+ignored, so a stale setting is caught when it is loaded. The masking options of
+[Flint](https://github.com/flint-crew/flint) use the earlier names, so this
+table also maps a Flint strategy file onto `eye-patch`.

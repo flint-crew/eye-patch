@@ -21,12 +21,12 @@ def test_need_to_make_signal():
     masking_options = MaskingOptions()
     assert _need_to_make_signal(masking_options=masking_options)
 
-    masking_options = MaskingOptions(flood_fill=True, flood_fill_use_mac=True)
+    masking_options = MaskingOptions(flood_fill=True, use_mac=True)
     assert not _need_to_make_signal(masking_options=masking_options)
 
-    # Without the flood fill the mac is unused, and the base_snr_clip
+    # Without the flood fill the mac is unused, and the base_clip
     # needs a signal image rather than the raw image
-    masking_options = MaskingOptions(flood_fill=False, flood_fill_use_mac=True)
+    masking_options = MaskingOptions(flood_fill=False, use_mac=True)
     assert _need_to_make_signal(masking_options=masking_options)
 
 
@@ -35,10 +35,10 @@ def test_make_masking_options():
 
     masking_options = MaskingOptions()
 
-    assert masking_options.base_snr_clip != -1
+    assert masking_options.base_clip != -1
 
-    masking_options = masking_options.with_options(base_snr_clip=-1)  # type: ignore[arg-type]
-    assert masking_options.base_snr_clip == -1
+    masking_options = masking_options.with_options(base_clip=-1)  # type: ignore[arg-type]
+    assert masking_options.base_clip == -1
 
 
 def test_fits_masking(fits_dir):
@@ -111,7 +111,7 @@ def test_fits_masking_beam_erode_multi_scale_writes_scalemask(
     # Scales are wsclean scales, whose Gaussians have a FWHM of about 0.44 of the
     # scale, so they need to be well separated to erode this source differently
     masking_options = MaskingOptions(
-        flood_fill=False, beam_shape_erode=True, beam_shape_erode_scales=(0, 8, 32)
+        flood_fill=False, beam_shape_erode=True, multiscale_scales=(0, 8, 32)
     )
     names = create_mask_from_fits(
         fits_image_path=image_path,
@@ -136,7 +136,7 @@ def test_fits_masking_beam_erode_multi_scale_without_beam(fits_dir: Path) -> Non
     """Without beam parameters no erosion is performed, so the plain mask should
     be written rather than a misleading scale mask."""
     masking_options = MaskingOptions(
-        flood_fill=False, beam_shape_erode=True, beam_shape_erode_scales=(0, 4, 8)
+        flood_fill=False, beam_shape_erode=True, multiscale_scales=(0, 4, 8)
     )
     names = create_mask_from_fits(
         fits_image_path=fits_dir / "image.fits",
@@ -157,9 +157,7 @@ def test_fits_masking_beam_erode_multi_scale_without_beam(fits_dir: Path) -> Non
 def test_fits_masking_signal_not_needed_is_not_returned(fits_dir: Path) -> None:
     """The minimum absolute clip does not need a signal image, so even when one
     is requested it is not written and should not be returned."""
-    masking_options = MaskingOptions(
-        flood_fill=True, flood_fill_use_mac=True, flood_fill_positive_seed_clip=0.5
-    )
+    masking_options = MaskingOptions(flood_fill=True, use_mac=True, seed_clip=0.5)
     names = create_mask_from_fits(
         fits_image_path=fits_dir / "image.fits",
         fits_rms_path=None,
@@ -241,7 +239,7 @@ def test_fits_masking_scales_as_fwhm(
             masking_options=MaskingOptions(
                 convolve_first=convolve_first,
                 beam_shape_erode=True,
-                beam_shape_erode_scales=(0, 32),
+                multiscale_scales=(0, 32),
                 beam_shape_erode_scales_as_fwhm=scales_as_fwhm,
             ),
         )
@@ -253,9 +251,9 @@ def test_fits_masking_scales_as_fwhm(
 
 
 def test_fits_masking_mac_without_flood_fill_uses_signal(fits_dir: Path) -> None:
-    """The mac is only used with the flood fill, so the base_snr_clip should be
+    """The mac is only used with the flood fill, so the base_clip should be
     applied to the signal image (5 everywhere) rather than the raw image (1)"""
-    masking_options = MaskingOptions(flood_fill=False, flood_fill_use_mac=True)
+    masking_options = MaskingOptions(flood_fill=False, use_mac=True)
     names = create_mask_from_fits(
         fits_image_path=fits_dir / "image.fits",
         fits_rms_path=fits_dir / "rms.fits",
@@ -270,7 +268,7 @@ def test_fits_masking_mac_without_flood_fill_uses_signal(fits_dir: Path) -> None
 def test_fits_masking_mac_without_flood_fill_needs_rms_bkg(fits_dir: Path) -> None:
     """Without the flood fill a signal image is needed. A missing RMS and
     background should raise an error that points to the flood fill setting."""
-    masking_options = MaskingOptions(flood_fill=False, flood_fill_use_mac=True)
+    masking_options = MaskingOptions(flood_fill=False, use_mac=True)
 
     with pytest.raises(ValueError, match="flood_fill=True"):
         create_mask_from_fits(

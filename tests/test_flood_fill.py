@@ -6,7 +6,7 @@ from scipy.ndimage import binary_dilation, label
 
 from eye_patch.flood_fill import (
     _flood_fill,
-    _verify_set_positive_seed_clip,
+    _verify_set_seed_clip,
     create_flood_fill_mask,
     grow_low_snr_mask,
 )
@@ -17,12 +17,10 @@ def test_verify_set_seed_clip():
     """Make sure the flood seed clip handles items above all possible values"""
     signal = np.ones((100, 100)) * 10.0
 
-    flood_clip = _verify_set_positive_seed_clip(signal=signal, positive_seed_clip=9.0)
+    flood_clip = _verify_set_seed_clip(signal=signal, seed_clip=9.0)
 
     assert flood_clip == 9.0
-    flood_clip = _verify_set_positive_seed_clip(
-        signal=signal, positive_seed_clip=999999.0
-    )
+    flood_clip = _verify_set_seed_clip(signal=signal, seed_clip=999999.0)
     assert flood_clip == 9.0
 
 
@@ -43,7 +41,7 @@ def test_create_flood_fill_mask_mac_grows_low_snr_islands() -> None:
             base_image=image,
             masking_options=MaskingOptions(
                 flood_fill=True,
-                flood_fill_use_mac=True,
+                use_mac=True,
                 grow_low_snr_island=grow_low_snr_island,
                 grow_low_snr_island_clip=0.5,
             ),
@@ -56,10 +54,10 @@ def test_create_flood_fill_mask_mac_grows_low_snr_islands() -> None:
     assert np.mean(with_growth[~diffuse]) < 0.02
 
 
-def test_verify_set_positive_seed_clip_with_nan() -> None:
+def test_verify_set_seed_clip_with_nan() -> None:
     """NaNs should not disable the lowering of an unreachable seed clip"""
     signal = np.array([[np.nan, 3.0], [1.0, 2.0]])
-    clip = _verify_set_positive_seed_clip(positive_seed_clip=10.0, signal=signal)
+    clip = _verify_set_seed_clip(seed_clip=10.0, signal=signal)
     assert np.isclose(clip, 2.7)
 
 

@@ -23,8 +23,8 @@ from eye_patch.snr import _create_signal_from_rmsbkg
 def _need_to_make_signal(masking_options: MaskingOptions) -> bool:
     """Isolated functions to consider whether a signal image is needed. The minimum
     absolute clip only operates on the image as part of the flood fill. Otherwise the
-    ``base_snr_clip`` is applied, which needs a signal image."""
-    return not (masking_options.flood_fill and masking_options.flood_fill_use_mac)
+    ``base_clip`` is applied, which needs a signal image."""
+    return not (masking_options.flood_fill and masking_options.use_mac)
 
 
 def create_native_resolution_mask(
@@ -51,7 +51,7 @@ def create_native_resolution_mask(
 
     Depending on the `MaskingOptions` used the signal image may not be needed.
 
-    Without the flood fill, pixels above ``base_snr_clip`` form the mask.
+    Without the flood fill, pixels above ``base_clip`` form the mask.
 
     Args:
         fits_image_path (Path): Path to the FITS file containing an image
@@ -79,10 +79,8 @@ def create_native_resolution_mask(
     if _need_to_make_signal(masking_options=masking_options):
         if fits_rms_path is None or fits_bkg_path is None:
             msg = "A signal image is needed, which requires paths to the RMS and background FITS images"
-            if masking_options.flood_fill_use_mac and not masking_options.flood_fill:
-                msg += (
-                    ". Note that flood_fill_use_mac is only used when flood_fill=True"
-                )
+            if masking_options.use_mac and not masking_options.flood_fill:
+                msg += ". Note that use_mac is only used when flood_fill=True"
             raise ValueError(msg)
 
         signal_data = _create_signal_from_rmsbkg(
@@ -114,21 +112,21 @@ def create_native_resolution_mask(
         ).astype(np.float32)
         mask_data = mask_data.reshape(signal_data.shape)
     else:
-        logger.info(f"Clipping using a {masking_options.base_snr_clip=}")
-        mask_data = (signal_data > masking_options.base_snr_clip).astype(float)
+        logger.info(f"Clipping using a {masking_options.base_clip=}")
+        mask_data = (signal_data > masking_options.base_clip).astype(float)
 
     if masking_options.beam_shape_erode:
         mask_data = beam_shape_erode(
             mask=mask_data,
             fits_header=fits_header,
             minimum_response=masking_options.beam_shape_erode_minimum_response,
-            scales=masking_options.beam_shape_erode_scales,
+            scales=masking_options.multiscale_scales,
             scales_as_fwhm=masking_options.beam_shape_erode_scales_as_fwhm,
         )
 
     # Multiple erosion scales are bit-packed per pixel, so belong in the scale mask.
     # Without beam parameters no erosion happens and the mask is a plain 0/1 mask
-    scales = masking_options.beam_shape_erode_scales
+    scales = masking_options.multiscale_scales
     is_scale_mask = (
         masking_options.beam_shape_erode
         and _has_beam_parameters(fits_header=fits_header)

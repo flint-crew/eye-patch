@@ -142,21 +142,19 @@ def _flood_fill(
     return flood_mask
 
 
-def _verify_set_positive_seed_clip(
-    positive_seed_clip: float, signal: NDArray[np.floating]
-) -> float:
+def _verify_set_seed_clip(seed_clip: float, signal: NDArray[np.floating]) -> float:
     """Ensure that the positive seed clip is handled appropriately. If it
     is too high then it is set to be 90-percent of the maximum signal"""
     # Blanked pixels (e.g. NaNs at the image edge) would otherwise disable this check
     max_signal = np.nanmax(signal)
-    if max_signal < positive_seed_clip:
+    if max_signal < seed_clip:
         logger.critical(
-            f"The maximum signal {max_signal:.4f} is below the provided {positive_seed_clip=}. "
+            f"The maximum signal {max_signal:.4f} is below the provided {seed_clip=}. "
             "Setting clip to 90 percent of maximum. "
         )
-        positive_seed_clip = max_signal * 0.9
+        seed_clip = max_signal * 0.9
 
-    return positive_seed_clip
+    return seed_clip
 
 
 def create_flood_fill_mask(
@@ -165,14 +163,14 @@ def create_flood_fill_mask(
 ) -> NDArray[np.bool]:
     """Seed islands from bright pixels, and grow them to a lower clipping level.
 
-    Seeds are pixels above ``flood_fill_positive_seed_clip``, and islands grow into
-    the connected pixels above ``flood_fill_positive_flood_clip`` (see ``_flood_fill``).
-    With ``flood_fill_use_mac`` both clips are increase factors of the minimum
+    Seeds are pixels above ``seed_clip``, and islands grow into
+    the connected pixels above ``flood_clip`` (see ``_flood_fill``).
+    With ``use_mac`` both clips are increase factors of the minimum
     absolute clip rather than signal-to-noise levels.
 
     Should ``grow_low_snr_island`` be set, islands of faint and diffuse emission that
     are never seeded are also added, using ``grow_low_snr_island_clip`` and
-    ``grow_low_snr_island_size``.
+    ``grow_low_snr_island_min_pixels``.
 
     Args:
         base_image (NDArray[np.floating]): The base image or signal map that is used throughout the fill procedure.
@@ -186,32 +184,28 @@ def create_flood_fill_mask(
     logger.info(f"{masking_options=} ")
 
     mac_threshold: NDArray[np.floating] | None = None
-    if masking_options.flood_fill_use_mac:
+    if masking_options.use_mac:
         # The seed, flood and low SNR island masks share the same base clipping level
         mac_threshold = minimum_absolute_clip_threshold(
             image=base_image,
-            box_size=masking_options.flood_fill_use_mac_box_size,
-            adaptive_max_depth=masking_options.flood_fill_use_mac_adaptive_max_depth,
-            adaptive_box_step=masking_options.flood_fill_use_mac_adaptive_step_factor,
-            adaptive_skew_delta=masking_options.flood_fill_use_mac_adaptive_skew_delta,
+            box_size=masking_options.mac_box_size,
+            adaptive_max_depth=masking_options.mac_adaptive_max_depth,
+            adaptive_box_step=masking_options.mac_adaptive_step_factor,
+            adaptive_skew_delta=masking_options.mac_adaptive_skew_delta,
         )
-        positive_mask = base_image > (
-            mac_threshold * masking_options.flood_fill_positive_seed_clip
-        )
-        flood_floor_mask = base_image > (
-            mac_threshold * masking_options.flood_fill_positive_flood_clip
-        )
+        positive_mask = base_image > (mac_threshold * masking_options.seed_clip)
+        flood_floor_mask = base_image > (mac_threshold * masking_options.flood_clip)
     else:
         # Sanity check the upper clip level, you rotten seadog
-        positive_seed_clip = _verify_set_positive_seed_clip(
-            positive_seed_clip=masking_options.flood_fill_positive_seed_clip,
+        seed_clip = _verify_set_seed_clip(
+            seed_clip=masking_options.seed_clip,
             signal=base_image,
         )
         # Here we create the mask image that will start the binary dilation
-        # process, and we will ensure only pixels above the `positive_flood_clip`
+        # process, and we will ensure only pixels above the `flood_clip`
         # are allowed to be dilated. In other words we are growing the mask
-        positive_mask = base_image >= positive_seed_clip
-        flood_floor_mask = base_image > masking_options.flood_fill_positive_flood_clip
+        positive_mask = base_image >= seed_clip
+        flood_floor_mask = base_image > masking_options.flood_clip
 
     positive_dilated_mask = _flood_fill(
         seed_mask=positive_mask, floor_mask=flood_floor_mask
@@ -227,13 +221,13 @@ def create_flood_fill_mask(
             low_snr_mask = _select_large_islands(
                 candidate_mask=base_image
                 > (mac_threshold * masking_options.grow_low_snr_island_clip),
-                minimum_island_size=masking_options.grow_low_snr_island_size,
+                minimum_island_size=masking_options.grow_low_snr_island_min_pixels,
             )
         else:
             low_snr_mask = grow_low_snr_mask(
                 signal=base_image,
                 grow_low_snr=masking_options.grow_low_snr_island_clip,
-                grow_low_island_size=masking_options.grow_low_snr_island_size,
+                grow_low_island_size=masking_options.grow_low_snr_island_min_pixels,
             )
         positive_dilated_mask[low_snr_mask] = True
 
