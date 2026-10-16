@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from astropy.io import fits
@@ -12,19 +13,93 @@ from capn_crunch import add_options_to_parser, create_options_from_parser
 
 from eye_patch.convolve import create_convolved_erosion_mask
 from eye_patch.erosion import beam_shape_erode
-from eye_patch.flood_fill import create_flood_fill_mask
+from eye_patch.flood_fill import (
+    _select_large_islands,
+    create_flood_fill_mask,
+    grow_low_snr_mask,
+)
 from eye_patch.logging import logger
+from eye_patch.mac import minimum_absolute_clip_threshold
 from eye_patch.naming import FITSMaskNames, create_fits_mask_names
 from eye_patch.options import MaskingOptions
 from eye_patch.pixel_utils import _has_beam_parameters
 from eye_patch.snr import _create_signal_from_rmsbkg
 
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
+
 
 def _need_to_make_signal(masking_options: MaskingOptions) -> bool:
     """Isolated functions to consider whether a signal image is needed. The minimum
-    absolute clip only operates on the image as part of the flood fill. Otherwise the
-    ``base_clip`` is applied, which needs a signal image."""
-    return not (masking_options.flood_fill and masking_options.use_mac)
+    absolute clip operates on the image itself, with or without the flood fill,
+    whereas the signal-to-noise clips need a signal image."""
+    return not masking_options.use_mac
+
+
+def _create_island_mask(
+    base_image: NDArray[np.floating], masking_options: MaskingOptions
+) -> NDArray[np.bool]:
+    """Clip the base image into the islands of a clean mask, before any beam erosion.
+
+    Islands are flood filled from bright seeds should ``flood_fill`` be set, and are
+    otherwise the pixels above ``base_clip``. Should ``grow_low_snr_island`` be set,
+    large islands of faint and diffuse emission are added in either case. With
+    ``use_mac`` each clip is an increase factor of the minimum absolute clip, rather
+    than a signal-to-noise level.
+
+    Args:
+        base_image (NDArray[np.floating]): The two-dimensional signal image, or the image itself should ``use_mac`` be set
+        masking_options (MaskingOptions): Options to carry out masking
+
+    Returns:
+        NDArray[np.bool]: Mask of the pixels to clean
+    """
+    mac_threshold: NDArray[np.floating] | None = None
+    if masking_options.use_mac:
+        # The base, seed, flood and low SNR island clips share the same clipping level
+        mac_threshold = minimum_absolute_clip_threshold(
+            image=base_image,
+            box_size=masking_options.mac_box_size,
+            adaptive_max_depth=masking_options.mac_adaptive_max_depth,
+            adaptive_box_step=masking_options.mac_adaptive_step_factor,
+            adaptive_skew_delta=masking_options.mac_adaptive_skew_delta,
+        )
+
+    island_mask: NDArray[np.bool]
+    if masking_options.flood_fill:
+        island_mask = create_flood_fill_mask(
+            base_image=base_image,
+            masking_options=masking_options,
+            mac_threshold=mac_threshold,
+        )
+    elif mac_threshold is not None:
+        logger.info(f"Minimum absolute clip using a {masking_options.base_clip=}")
+        island_mask = base_image > (mac_threshold * masking_options.base_clip)
+    else:
+        logger.info(f"Clipping using a {masking_options.base_clip=}")
+        island_mask = base_image > masking_options.base_clip
+
+    if masking_options.grow_low_snr_island:
+        if mac_threshold is not None:
+            # The base image is not a signal map when the minimum absolute clip is
+            # used, so the clip is the increase factor of the same clipping level
+            logger.info(
+                f"Growing mask for low surface brightness using {masking_options.grow_low_snr_island_clip=} as a minimum absolute clip"
+            )
+            low_snr_mask = _select_large_islands(
+                candidate_mask=base_image
+                > (mac_threshold * masking_options.grow_low_snr_island_clip),
+                minimum_island_size=masking_options.grow_low_snr_island_min_pixels,
+            )
+        else:
+            low_snr_mask = grow_low_snr_mask(
+                signal=base_image,
+                grow_low_snr=masking_options.grow_low_snr_island_clip,
+                grow_low_island_size=masking_options.grow_low_snr_island_min_pixels,
+            )
+        island_mask[low_snr_mask] = True
+
+    return island_mask
 
 
 def create_native_resolution_mask(
@@ -35,7 +110,7 @@ def create_native_resolution_mask(
     create_signal_fits: bool = False,
     overwrite: bool = True,
 ) -> FITSMaskNames:
-    """Create a mask for an input FITS image based on a signal to noise given a corresponding pair of RMS and background FITS images.
+    """Create a mask for an input FITS image based on a signal to noise given a corresponding pair of RMS and background FITS images, or on the minimum absolute clip of the image itself should ``use_mac`` be set.
 
     The image is masked at its native resolution, which is the default approach of
     ``create_mask_from_fits``.
@@ -49,9 +124,12 @@ def create_native_resolution_mask(
     Each of the input images needs to share the same shape. This means that compression
     features offered by some tooling (e.g. BANE --compress) can not be used.
 
-    Depending on the `MaskingOptions` used the signal image may not be needed.
+    The minimum absolute clip operates on the image itself, so with ``use_mac`` the
+    signal image is not needed.
 
-    Without the flood fill, pixels above ``base_clip`` form the mask.
+    Islands are flood filled should ``flood_fill`` be set, and are otherwise the pixels
+    above ``base_clip``. Large islands of faint emission are added in either case should
+    ``grow_low_snr_island`` be set (see ``_create_island_mask``).
 
     Args:
         fits_image_path (Path): Path to the FITS file containing an image
@@ -79,8 +157,6 @@ def create_native_resolution_mask(
     if _need_to_make_signal(masking_options=masking_options):
         if fits_rms_path is None or fits_bkg_path is None:
             msg = "A signal image is needed, which requires paths to the RMS and background FITS images"
-            if masking_options.use_mac and not masking_options.flood_fill:
-                msg += ". Note that use_mac is only used when flood_fill=True"
             raise ValueError(msg)
 
         signal_data = _create_signal_from_rmsbkg(
@@ -103,17 +179,10 @@ def create_native_resolution_mask(
     # as being not masked, and all non-zero values are interpreted as masked. In the
     # case of a fits file, the file may either contain a single frequency or it may
     # contain a cube of images.
-    if masking_options.flood_fill:
-        # TODO: The image and signal masks both don't need to be inputs. Image is only used
-        # if mac = True
-        mask_data = create_flood_fill_mask(
-            base_image=np.squeeze(signal_data),
-            masking_options=masking_options,
-        ).astype(np.float32)
-        mask_data = mask_data.reshape(signal_data.shape)
-    else:
-        logger.info(f"Clipping using a {masking_options.base_clip=}")
-        mask_data = (signal_data > masking_options.base_clip).astype(float)
+    mask_data = _create_island_mask(
+        base_image=np.squeeze(signal_data), masking_options=masking_options
+    ).astype(np.float32)
+    mask_data = mask_data.reshape(signal_data.shape)
 
     if masking_options.beam_shape_erode:
         mask_data = beam_shape_erode(

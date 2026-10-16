@@ -7,10 +7,8 @@ from scipy.ndimage import binary_dilation, label
 from eye_patch.flood_fill import (
     _flood_fill,
     _verify_set_seed_clip,
-    create_flood_fill_mask,
     grow_low_snr_mask,
 )
-from eye_patch.options import MaskingOptions
 
 
 def test_verify_set_seed_clip():
@@ -22,36 +20,6 @@ def test_verify_set_seed_clip():
     assert flood_clip == 9.0
     flood_clip = _verify_set_seed_clip(signal=signal, seed_clip=999999.0)
     assert flood_clip == 9.0
-
-
-def test_create_flood_fill_mask_mac_grows_low_snr_islands() -> None:
-    """With the minimum absolute clip the image is not a signal map. Low SNR islands
-    should be found using the clip as an increase factor of the same clipping level,
-    rather than comparing a significance to the raw pixel values."""
-    noise = 1e-4  # An image in Jy/beam rather than a signal map
-    yy, xx = np.mgrid[:400, :400]
-    diffuse = ((xx - 200) ** 2 + (yy - 200) ** 2) <= 60**2
-    image = (
-        np.random.default_rng(3).normal(scale=noise, size=(400, 400))
-        + diffuse * 2.5 * noise
-    )
-
-    without_growth, with_growth = (
-        create_flood_fill_mask(
-            base_image=image,
-            masking_options=MaskingOptions(
-                flood_fill=True,
-                use_mac=True,
-                grow_low_snr_island=grow_low_snr_island,
-                grow_low_snr_island_clip=0.5,
-            ),
-        )
-        for grow_low_snr_island in (False, True)
-    )
-
-    assert np.mean(without_growth[diffuse]) < 0.1
-    assert np.mean(with_growth[diffuse]) > 0.95
-    assert np.mean(with_growth[~diffuse]) < 0.02
 
 
 def test_verify_set_seed_clip_with_nan() -> None:

@@ -40,7 +40,8 @@ At their heart these SNR based processes are assuming Gaussian distributed
 zero-mean noise, where pixel intensities that are unlikely to occur by chance
 are assumed to be genuine emission. That is to say, pixels that are
 {math}`\gg5\sigma` are likely to be real and should be included in a mask for
-cleaning.
+cleaning. Without the flood fill (see below) the pixels with an SNR above
+`MaskingOptions.base_clip` form the mask.
 
 ### Minimum absolute clip
 
@@ -94,6 +95,12 @@ the `MaskingOptions.mac_adaptive_max_depth`,
 `MaskingOptions.mac_adaptive_step_factor` and
 `MaskingOptions.mac_adaptive_skew_delta` parameters.
 
+The {math}`\mathrm{MAC}` is selected with `MaskingOptions.use_mac`, and may be
+used with or without the flood fill (see below). Without the flood fill the
+padding factor {math}`P` is `MaskingOptions.base_clip`, and with it the seed and
+flood clips take its place. As the {math}`\mathrm{MAC}` operates on the image
+itself, no background or noise images are needed.
+
 <!-- TODO: Need to include some image here -->
 
 ## Reverse flood filling
@@ -118,17 +125,21 @@ There are two steps to this process:
    lower level clip is set via `MaskingOptions.flood_clip`.
 
 Activating the flood fill procedure is 'opt in' and activated via
-`MaskingOptions.flood_fill`. Further, the {math}`\mathrm{MAC}` statistic is only
-exposed when the flood fill is enabled.
+`MaskingOptions.flood_fill`. Either statistic may be used to seed and grow
+islands. With the {math}`\mathrm{MAC}` the seed and flood clips are padding
+factors {math}`P` of the rolling minimum, rather than SNR levels.
 
-Islands of faint and diffuse emission that are never seeded may also be added
-via `MaskingOptions.grow_low_snr_island`. Pixels above
-`MaskingOptions.grow_low_snr_island_clip` are joined together, and islands made
-up of at least `MaskingOptions.grow_low_snr_island_min_pixels` pixels are added
-to the mask. When the {math}`\mathrm{MAC}` statistic is used the clip is an
-increase factor of the same clipping level used to seed and grow islands. For a
-75 pixel box over noise this clipping level is around {math}`3.7\sigma`, so a
-factor near `0.5` is comparable to a {math}`1.75\sigma` clip of a signal map.
+## Islands of faint and diffuse emission
+
+Islands of faint and diffuse emission that would otherwise be missed may also be
+added via `MaskingOptions.grow_low_snr_island`, with or without the flood fill.
+Pixels above `MaskingOptions.grow_low_snr_island_clip` are joined together, and
+islands made up of at least `MaskingOptions.grow_low_snr_island_min_pixels`
+pixels are added to the mask. When the {math}`\mathrm{MAC}` statistic is used
+the clip is an increase factor of the same clipping level as the other clips.
+For a 75 pixel box over noise this clipping level is around {math}`3.7\sigma`,
+so a factor near `0.5` is comparable to a {math}`1.75\sigma` clip of a signal
+map.
 
 <!-- TODO: Need to include some other image here -->
 
@@ -288,3 +299,25 @@ creating `MaskingOptions`, raises a validation error rather than being silently
 ignored, so a stale setting is caught when it is loaded. The masking options of
 [Flint](https://github.com/flint-crew/flint) use the earlier names, so this
 table also maps a Flint strategy file onto `eye-patch`.
+
+### Changes in behaviour
+
+- **The {math}`\mathrm{MAC}` no longer needs the flood fill.** `use_mac`
+  (formerly `flood_fill_use_mac`) applies with or without `flood_fill`. Without
+  the flood fill the mask is the pixels above `base_clip` times the
+  {math}`\mathrm{MAC}` clipping level. Previously `flood_fill_use_mac` was
+  ignored unless `flood_fill` was set, and `base_snr_clip` was applied to the
+  signal image instead. As the {math}`\mathrm{MAC}` operates on the image itself
+  no signal image is formed, so the RMS and background images are not needed.
+- **Islands of faint and diffuse emission no longer need the flood fill.**
+  `grow_low_snr_island` adds its islands to the mask whether or not `flood_fill`
+  is set. Previously it was silently ignored without the flood fill.
+- **`base_clip` follows the statistic.** With `use_mac` it is an increase factor
+  of the {math}`\mathrm{MAC}` clipping level, as `seed_clip` and `flood_clip`
+  already were.
+- **Masks made without the flood fill are written as 32-bit floats**, rather
+  than 64-bit floats. Their values are unchanged.
+
+Settings that set `flood_fill_use_mac` or `grow_low_snr_island` without
+`flood_fill` now produce a different mask, and should be revisited. The
+`convolve_first` option is unaffected.

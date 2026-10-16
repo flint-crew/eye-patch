@@ -6,7 +6,12 @@ import numpy as np
 import pytest
 from astropy.io import fits
 
-from eye_patch.masking import _need_to_make_signal, create_mask_from_fits
+from eye_patch.mac import minimum_absolute_clip
+from eye_patch.masking import (
+    _create_island_mask,
+    _need_to_make_signal,
+    create_mask_from_fits,
+)
 from eye_patch.naming import FITSMaskNames
 from eye_patch.options import MaskingOptions
 
@@ -21,13 +26,10 @@ def test_need_to_make_signal():
     masking_options = MaskingOptions()
     assert _need_to_make_signal(masking_options=masking_options)
 
-    masking_options = MaskingOptions(flood_fill=True, use_mac=True)
-    assert not _need_to_make_signal(masking_options=masking_options)
-
-    # Without the flood fill the mac is unused, and the base_clip
-    # needs a signal image rather than the raw image
-    masking_options = MaskingOptions(flood_fill=False, use_mac=True)
-    assert _need_to_make_signal(masking_options=masking_options)
+    # The mac operates on the image itself, with or without the flood fill
+    for flood_fill in (True, False):
+        masking_options = MaskingOptions(flood_fill=flood_fill, use_mac=True)
+        assert not _need_to_make_signal(masking_options=masking_options)
 
 
 def test_make_masking_options():
@@ -250,30 +252,86 @@ def test_fits_masking_scales_as_fwhm(
     assert 0 < largest_scale_pixels[1] < largest_scale_pixels[0]
 
 
-def test_fits_masking_mac_without_flood_fill_uses_signal(fits_dir: Path) -> None:
-    """The mac is only used with the flood fill, so the base_clip should be
-    applied to the signal image (5 everywhere) rather than the raw image (1)"""
-    masking_options = MaskingOptions(flood_fill=False, use_mac=True)
+def test_fits_masking_mac_without_flood_fill(tmp_path: Path) -> None:
+    """The mac can be used without the flood fill, where each pixel is clipped at
+    base_clip times its clipping level. As the image itself is clipped, no RMS or
+    background images are needed."""
+    image = np.random.default_rng(1).normal(size=SHAPE)
+    image[40:60, 40:60] += 20.0
+    image_path = tmp_path / "image.fits"
+    fits.writeto(image_path, image)
+
     names = create_mask_from_fits(
-        fits_image_path=fits_dir / "image.fits",
-        fits_rms_path=fits_dir / "rms.fits",
-        fits_bkg_path=fits_dir / "bkg.fits",
-        masking_options=masking_options,
+        fits_image_path=image_path,
+        fits_rms_path=None,
+        fits_bkg_path=None,
+        masking_options=MaskingOptions(use_mac=True, base_clip=2.0, mac_box_size=30),
     )
 
     assert names.mask_fits is not None
-    assert np.sum(fits.getdata(names.mask_fits)) == np.prod(SHAPE)
+    mask_data = fits.getdata(names.mask_fits)
+    assert mask_data.dtype.itemsize == 4, "Masks are written as 32-bit floats"
+    expected = minimum_absolute_clip(image=image, increase_factor=2.0, box_size=30)
+    assert np.array_equal(mask_data == 1, expected)
+    assert np.all(expected[40:60, 40:60])
 
 
-def test_fits_masking_mac_without_flood_fill_needs_rms_bkg(fits_dir: Path) -> None:
-    """Without the flood fill a signal image is needed. A missing RMS and
-    background should raise an error that points to the flood fill setting."""
-    masking_options = MaskingOptions(flood_fill=False, use_mac=True)
+def test_fits_masking_grows_low_snr_islands_without_flood_fill(tmp_path: Path) -> None:
+    """Islands of faint and diffuse emission are added to the mask whether or not
+    the flood fill is used"""
+    yy, xx = np.mgrid[:200, :200]
+    diffuse = ((xx - 100) ** 2 + (yy - 100) ** 2) <= 40**2
+    image = np.random.default_rng(2).normal(size=(200, 200)) + diffuse * 2.5
+    fits.writeto(tmp_path / "image.fits", image)
+    fits.writeto(tmp_path / "rms.fits", np.ones((200, 200)))
+    fits.writeto(tmp_path / "bkg.fits", np.zeros((200, 200)))
 
-    with pytest.raises(ValueError, match="flood_fill=True"):
-        create_mask_from_fits(
-            fits_image_path=fits_dir / "image.fits",
-            fits_rms_path=None,
-            fits_bkg_path=None,
-            masking_options=masking_options,
+    masks = []
+    for grow_low_snr_island in (False, True):
+        names = create_mask_from_fits(
+            fits_image_path=tmp_path / "image.fits",
+            fits_rms_path=tmp_path / "rms.fits",
+            fits_bkg_path=tmp_path / "bkg.fits",
+            masking_options=MaskingOptions(
+                base_clip=5.0, grow_low_snr_island=grow_low_snr_island
+            ),
         )
+        assert names.mask_fits is not None
+        masks.append(fits.getdata(names.mask_fits) > 0)
+    without_growth, with_growth = masks
+
+    assert np.mean(without_growth[diffuse]) < 0.1
+    assert np.mean(with_growth[diffuse]) > 0.95
+    assert np.mean(with_growth[~diffuse]) < 0.02
+
+
+@pytest.mark.parametrize("flood_fill", [True, False])
+def test_create_island_mask_mac_grows_low_snr_islands(flood_fill: bool) -> None:
+    """With the minimum absolute clip the image is not a signal map. Low SNR islands
+    should be found using the clip as an increase factor of the same clipping level,
+    rather than comparing a significance to the raw pixel values, whether or not the
+    flood fill is used."""
+    noise = 1e-4  # An image in Jy/beam rather than a signal map
+    yy, xx = np.mgrid[:400, :400]
+    diffuse = ((xx - 200) ** 2 + (yy - 200) ** 2) <= 60**2
+    image = (
+        np.random.default_rng(3).normal(scale=noise, size=(400, 400))
+        + diffuse * 2.5 * noise
+    )
+
+    without_growth, with_growth = (
+        _create_island_mask(
+            base_image=image,
+            masking_options=MaskingOptions(
+                flood_fill=flood_fill,
+                use_mac=True,
+                grow_low_snr_island=grow_low_snr_island,
+                grow_low_snr_island_clip=0.5,
+            ),
+        )
+        for grow_low_snr_island in (False, True)
+    )
+
+    assert np.mean(without_growth[diffuse]) < 0.1
+    assert np.mean(with_growth[diffuse]) > 0.95
+    assert np.mean(with_growth[~diffuse]) < 0.02

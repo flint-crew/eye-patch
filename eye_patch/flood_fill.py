@@ -15,7 +15,6 @@ from scipy.ndimage import (
 from scipy.ndimage import label
 
 from eye_patch.logging import logger
-from eye_patch.mac import minimum_absolute_clip_threshold
 from eye_patch.snr import _get_signal_image
 
 if TYPE_CHECKING:
@@ -160,21 +159,19 @@ def _verify_set_seed_clip(seed_clip: float, signal: NDArray[np.floating]) -> flo
 def create_flood_fill_mask(
     base_image: NDArray[np.floating],
     masking_options: MaskingOptions,
+    mac_threshold: NDArray[np.floating] | None = None,
 ) -> NDArray[np.bool]:
     """Seed islands from bright pixels, and grow them to a lower clipping level.
 
     Seeds are pixels above ``seed_clip``, and islands grow into
     the connected pixels above ``flood_clip`` (see ``_flood_fill``).
-    With ``use_mac`` both clips are increase factors of the minimum
+    With a ``mac_threshold`` both clips are increase factors of the minimum
     absolute clip rather than signal-to-noise levels.
-
-    Should ``grow_low_snr_island`` be set, islands of faint and diffuse emission that
-    are never seeded are also added, using ``grow_low_snr_island_clip`` and
-    ``grow_low_snr_island_min_pixels``.
 
     Args:
         base_image (NDArray[np.floating]): The base image or signal map that is used throughout the fill procedure.
         masking_options (MaskingOptions): Options to carry out masking.
+        mac_threshold (NDArray[np.floating] | None, optional): The clipping level of the minimum absolute clip (see ``minimum_absolute_clip_threshold``) that the clips are increase factors of. If None the clips are signal-to-noise levels of ``base_image``. Defaults to None.
 
     Returns:
         NDArray[np.bool]: Mask of the pixels to clean
@@ -183,16 +180,7 @@ def create_flood_fill_mask(
     logger.info("Will be flood filling")
     logger.info(f"{masking_options=} ")
 
-    mac_threshold: NDArray[np.floating] | None = None
-    if masking_options.use_mac:
-        # The seed, flood and low SNR island masks share the same base clipping level
-        mac_threshold = minimum_absolute_clip_threshold(
-            image=base_image,
-            box_size=masking_options.mac_box_size,
-            adaptive_max_depth=masking_options.mac_adaptive_max_depth,
-            adaptive_box_step=masking_options.mac_adaptive_step_factor,
-            adaptive_skew_delta=masking_options.mac_adaptive_skew_delta,
-        )
+    if mac_threshold is not None:
         positive_mask = base_image > (mac_threshold * masking_options.seed_clip)
         flood_floor_mask = base_image > (mac_threshold * masking_options.flood_clip)
     else:
@@ -207,28 +195,4 @@ def create_flood_fill_mask(
         positive_mask = base_image >= seed_clip
         flood_floor_mask = base_image > masking_options.flood_clip
 
-    positive_dilated_mask = _flood_fill(
-        seed_mask=positive_mask, floor_mask=flood_floor_mask
-    )
-
-    if masking_options.grow_low_snr_island:
-        if mac_threshold is not None:
-            # The base image is not a signal map when the minimum absolute clip is
-            # used, so the clip is the increase factor of the same clipping level
-            logger.info(
-                f"Growing mask for low surface brightness using {masking_options.grow_low_snr_island_clip=} as a minimum absolute clip"
-            )
-            low_snr_mask = _select_large_islands(
-                candidate_mask=base_image
-                > (mac_threshold * masking_options.grow_low_snr_island_clip),
-                minimum_island_size=masking_options.grow_low_snr_island_min_pixels,
-            )
-        else:
-            low_snr_mask = grow_low_snr_mask(
-                signal=base_image,
-                grow_low_snr=masking_options.grow_low_snr_island_clip,
-                grow_low_island_size=masking_options.grow_low_snr_island_min_pixels,
-            )
-        positive_dilated_mask[low_snr_mask] = True
-
-    return positive_dilated_mask
+    return _flood_fill(seed_mask=positive_mask, floor_mask=flood_floor_mask)
