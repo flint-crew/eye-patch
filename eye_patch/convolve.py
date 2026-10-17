@@ -113,29 +113,25 @@ def _create_convolved_scale_mask(
         else base_image
     )
 
-    box_size = masking_options.flood_fill_use_mac_box_size + scale
+    box_size = masking_options.mac_box_size + scale
 
     # The seed and flood masks share the same base clipping level
     mac_threshold = minimum_absolute_clip_threshold(
         image=convolved_image,
         box_size=box_size,
-        adaptive_max_depth=masking_options.flood_fill_use_mac_adaptive_max_depth,
-        adaptive_box_step=masking_options.flood_fill_use_mac_adaptive_step_factor,
-        adaptive_skew_delta=masking_options.flood_fill_use_mac_adaptive_skew_delta,
+        adaptive_max_depth=masking_options.mac_adaptive_max_depth,
+        adaptive_box_step=masking_options.mac_adaptive_step_factor,
+        adaptive_skew_delta=masking_options.mac_adaptive_skew_delta,
     )
-    positive_mask = convolved_image > (
-        mac_threshold * masking_options.flood_fill_positive_seed_clip
-    )
+    positive_mask = convolved_image > (mac_threshold * masking_options.seed_clip)
 
-    flood_fill_positive_flood_clip = masking_options.flood_fill_positive_flood_clip
-    if scale == 0 and flood_fill_positive_flood_clip < 0.8:
-        logger.warning(
-            f"{flood_fill_positive_flood_clip=}, too low for {scale=}. Setting to 0.8"
-        )
-        flood_fill_positive_flood_clip = 0.8
+    flood_clip = masking_options.flood_clip
+    if scale == 0 and flood_clip < 0.8:
+        logger.warning(f"{flood_clip=}, too low for {scale=}. Setting to 0.8")
+        flood_clip = 0.8
 
     flood_floor_mask = binary_fill_holes(
-        input=convolved_image > (mac_threshold * flood_fill_positive_flood_clip)
+        input=convolved_image > (mac_threshold * flood_clip)
     )
 
     # Ensure positive only pixels. useful (necessary?) at larger scales bridging
@@ -197,8 +193,8 @@ def create_convolved_erosion_mask(
 
     scales = _sort_scales(
         scales=[0]
-        if masking_options.beam_shape_erode_scales is None
-        else masking_options.beam_shape_erode_scales
+        if masking_options.multiscale_scales is None
+        else masking_options.multiscale_scales
     )
     logger.info(f"Will be processing {scales=}")
 

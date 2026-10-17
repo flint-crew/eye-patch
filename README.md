@@ -23,7 +23,7 @@
 
 The pirate mask!
 
-A python library and CLI tools for creating masks to assist deconvolution of
+A Python library and CLI tools for creating masks to assist deconvolution of
 interferometric data.
 
 This library was originally the masking module of the
@@ -35,7 +35,7 @@ separated out for flexible use.
 ## Documentation
 
 Full documentation is provided on
-[ReadtheDocs](https://eye-patch.readthedocs.io/).
+[Read the Docs](https://eye-patch.readthedocs.io/).
 
 ## Installation
 
@@ -73,7 +73,7 @@ uv sync
 
 ## Contributions
 
-Contributions are welcome! Please do submit a pull-request or issue if you spot
+Contributions are welcome! Please do submit a pull request or issue if you spot
 something you would like to address.
 
 The full set of dev tooling can be installed via:
@@ -81,7 +81,7 @@ The full set of dev tooling can be installed via:
 ```bash
 git clone https://github.com/flint-crew/eye-patch.git
 cd eye-patch
-pip install '.[dev]'
+pip install -e . --group dev  # --group needs pip 25.1 or newer
 ```
 
 Or, using `uv`:
