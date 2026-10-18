@@ -313,7 +313,7 @@ Input values are validated by `pydantic` to ensure they are appropriately typed.
 :pyobject: MaskingOptions
 ```
 
-## Changes from earlier versions
+## Changes from v1.0.1 and earlier versions
 
 ### Renamed options
 
