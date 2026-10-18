@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from astropy.io import fits
 
-from eye_patch.snr import _create_signal_from_rmsbkg
+from eye_patch.snr import create_signal_from_rmsbkg
 
 
 def test_create_signal_from_rmsbkg():
@@ -16,7 +16,7 @@ def test_create_signal_from_rmsbkg():
     bkg = np.ones(shape)
     rms = np.zeros(shape) + 3
 
-    signal = _create_signal_from_rmsbkg(image=image, rms=rms, bkg=bkg)
+    signal = create_signal_from_rmsbkg(image=image, rms=rms, bkg=bkg)
     assert np.all(signal == 3.0)
 
 
@@ -37,5 +37,5 @@ def test_create_signal_from_rmsbkg_with_fits(tmpdir):
     rms_fits = Path(out_path) / "rms.fits"
     fits.writeto(rms_fits, data=rms)
 
-    signal = _create_signal_from_rmsbkg(image=image_fits, rms=rms_fits, bkg=bkg)
+    signal = create_signal_from_rmsbkg(image=image_fits, rms=rms_fits, bkg=bkg)
     assert np.all(signal == 3.0)

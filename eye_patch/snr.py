@@ -58,7 +58,7 @@ def _get_signal_image(
     return out_signal
 
 
-def _create_signal_from_rmsbkg(
+def create_signal_from_rmsbkg(
     image: Path | NDArray[np.floating],
     rms: Path | NDArray[np.floating],
     bkg: Path | NDArray[np.floating],

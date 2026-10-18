@@ -16,8 +16,8 @@ from eye_patch.flood_fill import create_flood_fill_mask
 from eye_patch.logging import logger
 from eye_patch.naming import FITSMaskNames, create_fits_mask_names
 from eye_patch.options import MaskingOptions
-from eye_patch.pixel_utils import _has_beam_parameters
-from eye_patch.snr import _create_signal_from_rmsbkg
+from eye_patch.pixel_utils import has_beam_parameters
+from eye_patch.snr import create_signal_from_rmsbkg
 
 
 def _need_to_make_signal(masking_options: MaskingOptions) -> bool:
@@ -85,7 +85,7 @@ def create_native_resolution_mask(
                 )
             raise ValueError(msg)
 
-        signal_data = _create_signal_from_rmsbkg(
+        signal_data = create_signal_from_rmsbkg(
             image=signal_data, rms=fits_rms_path, bkg=fits_bkg_path
         )
 
@@ -131,7 +131,7 @@ def create_native_resolution_mask(
     scales = masking_options.beam_shape_erode_scales
     is_scale_mask = (
         masking_options.beam_shape_erode
-        and _has_beam_parameters(fits_header=fits_header)
+        and has_beam_parameters(fits_header=fits_header)
         and (scales is not None and len(scales) > 1)
     )
     output_fits = mask_names.scale_mask_fits if is_scale_mask else mask_names.mask_fits
@@ -153,8 +153,8 @@ def create_native_resolution_mask(
 def create_mask_from_fits(
     fits_image_path: Path,
     masking_options: MaskingOptions,
-    fits_rms_path: Path | None,
-    fits_bkg_path: Path | None,
+    fits_rms_path: Path | None = None,
+    fits_bkg_path: Path | None = None,
     create_signal_fits: bool = False,
     overwrite: bool = True,
 ) -> FITSMaskNames:
