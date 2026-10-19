@@ -21,6 +21,9 @@ class BeamShape:
     of astropy.units, which can cause strange and wonderful
     errors when being sent over the wire to workers."""
 
+    # NOTE: This is being used over ``radio_beam`` to avoid known
+    # issues with serialising ``astrioy.unit`` objects.
+
     bmaj_arcsec: float
     """The size of the major-axis of the beam, in arcseconds."""
     bmin_arcsec: float
