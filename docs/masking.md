@@ -103,14 +103,18 @@ negative pixels). A basic adaptive boxcar size is implemented via the
 :figclass: only-light
 :width: 100%
 
-A cut through an image of unit noise, with a compact source and a bright source
-that is wider than the default 75-pixel box, clipped by the
-{math}`\mathrm{MAC}` with an increase factor of 4. With a fixed box, the rolling
-minimum in the middle of the wide source only sees the source, so the clip level
-rises above it and the middle of the source is not masked. The adaptive box
-(`mac_adaptive_max_depth=3`) doubles in size wherever positive pixels dominate
-it, so the clip level stays at the noise and the whole source is masked. Away
-from the wide source the two clip levels are the same, and their lines overlap.
+The top panel is a cut through an image of unit noise (grey), with a compact
+source and a bright source that is wider than the default 75-pixel box. The blue
+and orange lines are the clip levels of the {math}`\mathrm{MAC}`, with an
+increase factor of 4, from a fixed box and from the adaptive box
+(`mac_adaptive_max_depth=3`). A pixel is included in the clean mask wherever the
+image is above the clip level, and the bottom panel shows the resulting masks along the cut, where
+the bars are True. With a fixed box, the rolling minimum in the middle of the
+wide source only sees the source, so the clip level rises above it and the
+middle of the source is missed, leaving a hole. The adaptive box doubles in size
+wherever positive pixels dominate it, so its clip level stays at the noise and
+the whole source is masked. Away from the wide source the two clip levels are
+the same, and their lines overlap.
 ```
 
 ```{figure} _static/adaptive_mac_dark.png
@@ -118,14 +122,18 @@ from the wide source the two clip levels are the same, and their lines overlap.
 :figclass: only-dark
 :width: 100%
 
-A cut through an image of unit noise, with a compact source and a bright source
-that is wider than the default 75-pixel box, clipped by the
-{math}`\mathrm{MAC}` with an increase factor of 4. With a fixed box, the rolling
-minimum in the middle of the wide source only sees the source, so the clip level
-rises above it and the middle of the source is not masked. The adaptive box
-(`mac_adaptive_max_depth=3`) doubles in size wherever positive pixels dominate
-it, so the clip level stays at the noise and the whole source is masked. Away
-from the wide source the two clip levels are the same, and their lines overlap.
+The top panel is a cut through an image of unit noise (grey), with a compact
+source and a bright source that is wider than the default 75-pixel box. The blue
+and orange lines are the clip levels of the {math}`\mathrm{MAC}`, with an
+increase factor of 4, from a fixed box and from the adaptive box
+(`mac_adaptive_max_depth=3`). A pixel is included in the clean mask wherever the
+image is above the clip level, and the bottom panel shows the resulting masks along the cut, where
+the bars are True. With a fixed box, the rolling minimum in the middle of the
+wide source only sees the source, so the clip level rises above it and the
+middle of the source is missed, leaving a hole. The adaptive box doubles in size
+wherever positive pixels dominate it, so its clip level stays at the noise and
+the whole source is masked. Away from the wide source the two clip levels are
+the same, and their lines overlap.
 ```
 
 The {math}`\mathrm{MAC}` is selected with `MaskingOptions.use_mac`, and may be
