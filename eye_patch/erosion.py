@@ -113,7 +113,7 @@ def create_beam_mask_kernel(
             break
 
         # Doubling plus one keeps an odd sized kernel centred on a pixel
-        kernel_size = tuple(ks * 2 + 1 for ks in kernel_size)  # type: ignore[assignment]
+        kernel_size = (y_kernel_size * 2 + 1, x_kernel_size * 2 + 1)
         logger.warning(f"Increasing to {kernel_size=} for {pixel_scale=}")
     else:
         logger.warning(
