@@ -21,6 +21,9 @@ class BeamShape:
     of astropy.units, which can cause strange and wonderful
     errors when being sent over the wire to workers."""
 
+    # NOTE: This is being used over ``radio_beam`` to avoid known
+    # issues with serialising ``astrioy.unit`` objects.
+
     bmaj_arcsec: float
     """The size of the major-axis of the beam, in arcseconds."""
     bmin_arcsec: float
@@ -58,9 +61,17 @@ def get_beam_shape(fits_path: Path) -> BeamShape | None:
         Optional[BeamShape]: Shape of the beam stored in the FITS image. None is returned if the beam is not found.
     """
 
-    header = fits.getheader(filename=fits_path)
+    return _beam_shape_from_header(header=fits.getheader(filename=fits_path))
 
-    if not all(key in header for key in ("BMAJ", "BMIN", "BPA")):
+
+def has_beam_parameters(fits_header: fits.Header) -> bool:
+    """Whether the header carries the beam keywords, BMAJ, BMIN and BPA"""
+    return all(key in fits_header for key in ["BMAJ", "BMIN", "BPA"])
+
+
+def _beam_shape_from_header(header: fits.Header) -> BeamShape | None:
+    """Construct a beam shape from a FITS header, or None if the beam is not found"""
+    if not has_beam_parameters(fits_header=header):
         return None
 
     return BeamShape(
@@ -82,12 +93,11 @@ def get_pixels_per_beam(fits_path: Path) -> float | None:
         float | None: Number of pixels per beam. If beam is not in header then None is returned.
     """
 
-    beam_shape = get_beam_shape(fits_path=fits_path)
+    header = fits.getheader(filename=fits_path)
+    beam_shape = _beam_shape_from_header(header=header)
 
     if beam_shape is None:
         return None
-
-    header = fits.getheader(filename=fits_path)
 
     pixel_ra = np.abs(header["CDELT1"] * 3600)
     pixel_dec = np.abs(header["CDELT2"] * 3600)

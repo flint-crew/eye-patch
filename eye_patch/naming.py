@@ -14,7 +14,7 @@ class FITSMaskNames(NamedTuple):
     signal_fits: Path | None = None
     """Name of the signal FITS file"""
     scale_mask_fits: Path | None = None
-    """Path to a FITS file that describes per-scale clean masks. Scales are represented with a bit-mapped values,"""
+    """Path to a FITS file that describes per-scale clean masks. Scales are represented with bit-mapped values."""
 
 
 def create_fits_mask_names(
@@ -23,7 +23,7 @@ def create_fits_mask_names(
     """Create the names that will be used when generate FITS mask products
 
     Args:
-        fits_image (Union[str,]Path): Base name of the output files
+        fits_image (str | Path): Base name of the output files
         include_signal_path (bool, optional): If True, also include ``signal_fits`` in the output. Defaults to False.
 
     Returns:
