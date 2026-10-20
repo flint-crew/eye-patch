@@ -22,7 +22,7 @@ class BeamShape:
     errors when being sent over the wire to workers."""
 
     # NOTE: This is being used over ``radio_beam`` to avoid known
-    # issues with serialising ``astrioy.unit`` objects.
+    # issues with serialising ``astropy.unit`` objects.
 
     bmaj_arcsec: float
     """The size of the major-axis of the beam, in arcseconds."""

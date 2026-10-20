@@ -18,13 +18,14 @@ if TYPE_CHECKING:
 SHAPE = (100, 100)
 
 
-def _celestial_header(crpix: tuple[float, float]) -> fits.Header:
-    """A simple celestial header that only differs in its reference pixel"""
-    wcs = WCS(naxis=2)
-    wcs.wcs.ctype = ["RA---SIN", "DEC--SIN"]
-    wcs.wcs.crval = [150.0, -30.0]
-    wcs.wcs.cdelt = [-0.001, 0.001]
-    wcs.wcs.crpix = list(crpix)
+def _celestial_header(crpix: tuple[float, float], naxis: int = 2) -> fits.Header:
+    """A simple celestial header that only differs in its reference pixel. With a
+    ``naxis`` of 4 frequency and Stokes axes are added, as written by wsclean."""
+    wcs = WCS(naxis=naxis)
+    wcs.wcs.ctype = ["RA---SIN", "DEC--SIN", "FREQ", "STOKES"][:naxis]
+    wcs.wcs.crval = [150.0, -30.0, 1.4e9, 1.0][:naxis]
+    wcs.wcs.cdelt = [-0.001, 0.001, 1e6, 1.0][:naxis]
+    wcs.wcs.crpix = [*crpix, 1.0, 1.0][:naxis]
     return wcs.to_header()
 
 
@@ -126,3 +127,54 @@ def test_cli_extract_beam_scale_mask(
     assert not (mosaic_scale_mask_dir / "beam.mask.fits").exists()
     scale_mask_data = fits.getdata(mosaic_scale_mask_dir / "beam.scalemask.fits")
     assert np.max(scale_mask_data) == 7.0
+
+
+@pytest.mark.parametrize("mosaic_naxis", [2, 4])
+def test_extract_beam_masks_have_the_template_shape(
+    tmp_path: Path, mosaic_naxis: int
+) -> None:
+    """Extracted masks take the shape of the template, which may carry degenerate
+    frequency and Stokes axes, with the same values as for a two-dimensional
+    template. The template's right half covers the mosaic's left half."""
+    mosaic_scale_mask = np.zeros(SHAPE, dtype=np.float32)
+    mosaic_scale_mask[:, :50] = 1
+    mosaic_scale_mask[20:80, 10:40] = 3
+    mosaic_shape = SHAPE if mosaic_naxis == 2 else (1, 1, *SHAPE)
+    mosaic_header = _celestial_header(crpix=(50, 50), naxis=mosaic_naxis)
+    mosaic_names = FITSMaskNames(
+        mask_fits=tmp_path / "mosaic.mask.fits",
+        scale_mask_fits=tmp_path / "mosaic.scalemask.fits",
+    )
+    fits.writeto(
+        mosaic_names.mask_fits,
+        np.clip(mosaic_scale_mask, 0, 1).reshape(mosaic_shape),
+        header=mosaic_header,
+    )
+    fits.writeto(
+        mosaic_names.scale_mask_fits,
+        mosaic_scale_mask.reshape(mosaic_shape),
+        header=mosaic_header,
+    )
+
+    extracted = {}
+    for template_shape in (SHAPE, (1, 1, *SHAPE)):
+        template_dir = tmp_path / f"template_{len(template_shape)}d"
+        template_dir.mkdir()
+        fits.writeto(
+            template_dir / "beam.fits",
+            np.zeros(template_shape),
+            header=_celestial_header(crpix=(100, 50), naxis=len(template_shape)),
+        )
+        names = extract_beam_mask_from_mosaic(
+            fits_beam_image_path=template_dir / "beam.fits",
+            fits_mosaic_mask_names=mosaic_names,
+        )
+        assert names.mask_fits is not None
+        assert names.scale_mask_fits is not None
+        masks = (fits.getdata(names.mask_fits), fits.getdata(names.scale_mask_fits))
+        assert all(mask.shape == template_shape for mask in masks)
+        extracted[len(template_shape)] = masks
+
+    for mask_2d, mask_4d in zip(extracted[2], extracted[4], strict=True):
+        assert np.array_equal(mask_2d, np.squeeze(mask_4d))
+    assert np.max(extracted[2][1]) == 3.0
