@@ -15,7 +15,7 @@ from scipy.ndimage import (
 from scipy.signal import fftconvolve
 
 from eye_patch.logging import logger
-from eye_patch.pixel_utils import _has_beam_parameters
+from eye_patch.pixel_utils import has_beam_parameters
 
 if TYPE_CHECKING:
     from astropy.io import fits
@@ -113,7 +113,7 @@ def create_beam_mask_kernel(
             break
 
         # Doubling plus one keeps an odd sized kernel centred on a pixel
-        kernel_size = tuple(ks * 2 + 1 for ks in kernel_size)  # type: ignore[assignment]
+        kernel_size = (y_kernel_size * 2 + 1, x_kernel_size * 2 + 1)
         logger.warning(f"Increasing to {kernel_size=} for {pixel_scale=}")
     else:
         logger.warning(
@@ -198,11 +198,11 @@ def create_multi_scale_erosion(
         NDArray[np.bool]: The eroded mask
     """
     # Trust no one on the high seas, mate
-    if not _has_beam_parameters(fits_header=fits_header):
+    if not has_beam_parameters(fits_header=fits_header):
         logger.warning(
             "Beam parameters missing. Not performing the beam shape erosion. "
         )
-        return mask  # type: ignore[return-value]
+        return mask.astype(bool, copy=False)
 
     # The scale is not a FWHM. wsclean uses a Gaussian with a sigma of 3/16 of the
     # scale, so a scale of 16 pixels is a Gaussian with a FWHM of about 7 pixels
@@ -296,7 +296,7 @@ def beam_shape_erode(
         n'th scale is stored as the n'th bit.
     """
 
-    if not _has_beam_parameters(fits_header=fits_header):
+    if not has_beam_parameters(fits_header=fits_header):
         logger.warning(
             "Beam parameters missing. Not performing the beam shape erosion. "
         )

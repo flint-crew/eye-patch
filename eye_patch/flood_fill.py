@@ -40,7 +40,7 @@ def _select_large_islands(
     Returns:
         NDArray[np.bool]: Mask of the islands that were kept
     """
-    # The dilatie and erode aim to close holes and remove the noodle like features around a island
+    # The dilate and erode aim to close holes and remove the noodle like features around an island
     # that trace the noise peaks.
     island_mask: NDArray[np.bool] = scipy_binary_dilation(
         input=candidate_mask, iterations=2, structure=np.ones((3, 3), dtype=bool)

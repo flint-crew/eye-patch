@@ -22,8 +22,8 @@ from eye_patch.logging import logger
 from eye_patch.mac import minimum_absolute_clip_threshold
 from eye_patch.naming import FITSMaskNames, create_fits_mask_names
 from eye_patch.options import MaskingOptions
-from eye_patch.pixel_utils import _has_beam_parameters
-from eye_patch.snr import _create_signal_from_rmsbkg
+from eye_patch.pixel_utils import has_beam_parameters
+from eye_patch.snr import create_signal_from_rmsbkg
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -159,7 +159,7 @@ def create_native_resolution_mask(
             msg = "A signal image is needed, which requires paths to the RMS and background FITS images"
             raise ValueError(msg)
 
-        signal_data = _create_signal_from_rmsbkg(
+        signal_data = create_signal_from_rmsbkg(
             image=signal_data, rms=fits_rms_path, bkg=fits_bkg_path
         )
 
@@ -198,7 +198,7 @@ def create_native_resolution_mask(
     scales = masking_options.multiscale_scales
     is_scale_mask = (
         masking_options.beam_shape_erode
-        and _has_beam_parameters(fits_header=fits_header)
+        and has_beam_parameters(fits_header=fits_header)
         and (scales is not None and len(scales) > 1)
     )
     output_fits = mask_names.scale_mask_fits if is_scale_mask else mask_names.mask_fits
@@ -220,8 +220,8 @@ def create_native_resolution_mask(
 def create_mask_from_fits(
     fits_image_path: Path,
     masking_options: MaskingOptions,
-    fits_rms_path: Path | None,
-    fits_bkg_path: Path | None,
+    fits_rms_path: Path | None = None,
+    fits_bkg_path: Path | None = None,
     create_signal_fits: bool = False,
     overwrite: bool = True,
 ) -> FITSMaskNames:

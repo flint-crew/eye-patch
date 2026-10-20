@@ -21,6 +21,9 @@ class BeamShape:
     of astropy.units, which can cause strange and wonderful
     errors when being sent over the wire to workers."""
 
+    # NOTE: This is being used over ``radio_beam`` to avoid known
+    # issues with serialising ``astrioy.unit`` objects.
+
     bmaj_arcsec: float
     """The size of the major-axis of the beam, in arcseconds."""
     bmin_arcsec: float
@@ -61,14 +64,14 @@ def get_beam_shape(fits_path: Path) -> BeamShape | None:
     return _beam_shape_from_header(header=fits.getheader(filename=fits_path))
 
 
-def _has_beam_parameters(fits_header: fits.Header) -> bool:
+def has_beam_parameters(fits_header: fits.Header) -> bool:
     """Whether the header carries the beam keywords, BMAJ, BMIN and BPA"""
     return all(key in fits_header for key in ["BMAJ", "BMIN", "BPA"])
 
 
 def _beam_shape_from_header(header: fits.Header) -> BeamShape | None:
     """Construct a beam shape from a FITS header, or None if the beam is not found"""
-    if not _has_beam_parameters(fits_header=header):
+    if not has_beam_parameters(fits_header=header):
         return None
 
     return BeamShape(

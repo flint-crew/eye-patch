@@ -232,7 +232,7 @@ pixels. These masks are intended for wsclean's Gaussian scales
 (`-multiscale-shape gaussian`).
 
 ```{note}
-Earlier versions of `eye-patch` used each scale as the FWHM of the Gaussian.
+Versions of `eye-patch` up to v1.0.1 used each scale as the FWHM of the Gaussian.
 This made the erosion structure of a scale about 2.3 times wider than the
 wsclean Gaussian of the same scale, so larger scales were eroded more than
 intended. Masks at larger scales are now larger than before, and settings tuned
