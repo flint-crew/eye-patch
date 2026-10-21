@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from argparse import ArgumentParser
 
-from eye_patch import extract, masking
+from eye_patch import extract, masking, scales
 from eye_patch.logging import logger
 
 
@@ -32,6 +32,13 @@ def get_parser() -> ArgumentParser:
         )
     )
 
+    scales.get_parser(
+        parser=subparser.add_parser(
+            "scales",
+            help="Operations on a per-scale mask (.scalemask.fits), e.g. flattening it into a single mask.",
+        )
+    )
+
     return parser
 
 
@@ -44,6 +51,8 @@ def cli() -> None:
         masking.cli(args=args)
     elif args.mode == "extractmask":
         extract.cli(args=args)
+    elif args.mode == "scales":
+        scales.cli(args=args)
     else:
         logger.error(f"Supplied mode {args.mode} is not known. ")
         parser.print_help()

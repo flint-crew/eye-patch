@@ -119,4 +119,4 @@ def test_cli_without_mode_prints_help(
         cli()
 
     assert "Supplied mode None is not known" in caplog.text
-    assert "{mask,extractmask}" in capsys.readouterr().out
+    assert "{mask,extractmask,scales}" in capsys.readouterr().out

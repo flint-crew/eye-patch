@@ -257,6 +257,17 @@ written to `<image>.mask.fits`. Should the image header be missing the beam
 information, no erosion is performed, and the mask is also written to
 `<image>.mask.fits`.
 
+A per-scale mask can be flattened into a single mask, where any pixel that is
+set at any scale becomes `1`, for tools that do not read bitmapped scales:
+
+```bash
+eye-patch scales flatten <image>.scalemask.fits
+```
+
+The flattened mask is written to `<image>.mask.fits`, or to the path given with
+`--output-fits`. The same operation is available in Python as
+`eye_patch.scales.flatten_scale_mask_fits`.
+
 This is intended to provide a mechanism to ensure cleaning at larger scales
 occurs in well-defined regions. An example of the erosion process for
 `0 1 2 4 8 16 32 64 128 256 512 1024 2056` is shown below. Point source islands

@@ -40,3 +40,25 @@ def create_fits_mask_names(
     return FITSMaskNames(
         signal_fits=fits_signal, mask_fits=fits_mask, scale_mask_fits=fits_scale_mask
     )
+
+
+def mask_fits_from_scale_mask(scale_mask_fits: str | Path) -> Path:
+    """The name of the mask that corresponds to a per-scale mask. Following
+    ``create_fits_mask_names``, ``image.scalemask.fits`` becomes ``image.mask.fits``.
+    Any other name has its suffix replaced, so ``image.fits`` becomes
+    ``image.mask.fits``.
+
+    Args:
+        scale_mask_fits (str | Path): Path to the per-scale mask
+
+    Returns:
+        Path: Path to the corresponding mask, in the same directory
+    """
+    scale_mask_fits = Path(scale_mask_fits)
+
+    # with_suffix only replaces the last suffix, which would keep the .scalemask
+    if scale_mask_fits.name.endswith(".scalemask.fits"):
+        return scale_mask_fits.with_name(
+            scale_mask_fits.name.removesuffix(".scalemask.fits") + ".mask.fits"
+        )
+    return scale_mask_fits.with_suffix(".mask.fits")
