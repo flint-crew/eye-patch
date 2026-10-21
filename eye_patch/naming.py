@@ -4,6 +4,11 @@ from typing import NamedTuple
 
 from eye_patch.logging import logger
 
+# The suffixes that name each product after its image, e.g. image.mask.fits
+MASK_SUFFIX = ".mask.fits"
+SCALE_MASK_SUFFIX = ".scalemask.fits"
+SIGNAL_SUFFIX = ".signal.fits"
+
 
 class FITSMaskNames(NamedTuple):
     """Contains the names of the FITS images created when creating a mask image.
@@ -34,11 +39,9 @@ def create_fits_mask_names(
     """
     fits_image = Path(fits_image)
 
-    fits_signal = (
-        fits_image.with_suffix(".signal.fits") if include_signal_path else None
-    )
-    fits_mask = fits_image.with_suffix(".mask.fits")
-    fits_scale_mask = fits_image.with_suffix(".scalemask.fits")
+    fits_signal = fits_image.with_suffix(SIGNAL_SUFFIX) if include_signal_path else None
+    fits_mask = fits_image.with_suffix(MASK_SUFFIX)
+    fits_scale_mask = fits_image.with_suffix(SCALE_MASK_SUFFIX)
 
     return FITSMaskNames(
         signal_fits=fits_signal, mask_fits=fits_mask, scale_mask_fits=fits_scale_mask
@@ -60,11 +63,11 @@ def mask_fits_from_scale_mask(scale_mask_fits: str | Path) -> Path:
     scale_mask_fits = Path(scale_mask_fits)
 
     # with_suffix only replaces the last suffix, which would keep the .scalemask
-    if scale_mask_fits.name.endswith(".scalemask.fits"):
+    if scale_mask_fits.name.endswith(SCALE_MASK_SUFFIX):
         return scale_mask_fits.with_name(
-            scale_mask_fits.name.removesuffix(".scalemask.fits") + ".mask.fits"
+            scale_mask_fits.name.removesuffix(SCALE_MASK_SUFFIX) + MASK_SUFFIX
         )
-    return scale_mask_fits.with_suffix(".mask.fits")
+    return scale_mask_fits.with_suffix(MASK_SUFFIX)
 
 
 def check_output_fits(

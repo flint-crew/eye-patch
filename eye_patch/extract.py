@@ -14,6 +14,7 @@ from reproject import reproject_interp
 
 from eye_patch.logging import logger
 from eye_patch.naming import (
+    SCALE_MASK_SUFFIX,
     FITSMaskNames,
     check_output_fits,
     create_fits_mask_names,
@@ -197,7 +198,7 @@ def cli(args: Namespace | None = None) -> None:
 
     mosaic_mask_names = (
         FITSMaskNames(scale_mask_fits=args.mosaic_image)
-        if args.mosaic_image.name.endswith(".scalemask.fits")
+        if args.mosaic_image.name.endswith(SCALE_MASK_SUFFIX)
         else FITSMaskNames(mask_fits=args.mosaic_image)
     )
     extract_beam_mask_from_mosaic(

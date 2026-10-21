@@ -257,19 +257,6 @@ written to `<image>.mask.fits`. Should the image header be missing the beam
 information, no erosion is performed, and the mask is also written to
 `<image>.mask.fits`.
 
-A per-scale mask can be flattened into a single mask, where any pixel that is
-set at any scale becomes `1`, for tools that do not read bitmapped scales:
-
-```bash
-eye-patch scales flatten <image>.scalemask.fits
-```
-
-The flattened mask is written to `<image>.mask.fits`, or to the path given with
-`--output-fits`. An existing file is only replaced with `--overwrite`, and
-otherwise is an error, so a plain mask of the same image is never replaced by
-mistake. The same operation is available in Python as
-`eye_patch.scales.flatten_scale_mask_fits`.
-
 This is intended to provide a mechanism to ensure cleaning at larger scales
 occurs in well-defined regions. An example of the erosion process for
 `0 1 2 4 8 16 32 64 128 256 512 1024 2056` is shown below. Point source islands
@@ -315,6 +302,22 @@ thresholds change, and it should be possible to use lower limits. For example,
 `seed_clip=1.02` and `flood_clip=0.15` may be used, as these are increase
 factors of the minimum absolute clip, which this option always uses. At the
 native scale (a scale of `0`), the flood clip is raised to at least `0.8`.
+
+## Working with per-scale masks
+
+Per-scale masks, from either the multi-scale beam erosion or `--convolve-first`,
+can be worked with through `eye-patch scales`. A per-scale mask can be flattened
+into a single mask, where any pixel that is set at any scale becomes `1`, for
+tools that do not read bitmapped scales:
+
+```bash
+eye-patch scales flatten <image>.scalemask.fits
+```
+
+The flattened mask is written to `<image>.mask.fits`, or to the path given with
+`--output-fits`. As `<image>.mask.fits` is also the name of a plain mask of the
+same image, an existing file is only replaced with `--overwrite`. The same
+operation is available in Python as `eye_patch.scales.flatten_scale_mask_fits`.
 
 ## Accessing via the CLI
 

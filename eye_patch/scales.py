@@ -16,6 +16,9 @@ from eye_patch.naming import check_output_fits, mask_fits_from_scale_mask
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
+# Header keywords that describe integer data, which a float image cannot carry
+INTEGER_ONLY_KEYWORDS = ("BLANK", "BSCALE", "BZERO")
+
 
 def flatten_scale_mask(scale_mask: NDArray[np.floating]) -> NDArray[np.float32]:
     """Flatten a per-scale mask into a single mask, where a pixel that is set at
@@ -28,7 +31,9 @@ def flatten_scale_mask(scale_mask: NDArray[np.floating]) -> NDArray[np.float32]:
     Returns:
         NDArray[np.float32]: The flattened mask, with the same shape as ``scale_mask``
     """
-    masked = np.isfinite(scale_mask) & (scale_mask != 0)
+    # Built in place, to avoid a second full-size temporary for large mosaics
+    masked = scale_mask != 0
+    masked &= np.isfinite(scale_mask)
     flattened: NDArray[np.float32] = masked.astype(np.float32)
     return flattened
 
@@ -68,8 +73,13 @@ def flatten_scale_mask_fits(
     )
 
     with fits.open(scale_mask_fits) as scale_mask:
-        header = scale_mask[0].header
+        header = scale_mask[0].header.copy()
         mask = flatten_scale_mask(scale_mask=scale_mask[0].data)
+
+    # The flattened mask is written as floats, so keywords that only describe integer
+    # data (e.g. from an integer per-scale mask) would make its header invalid
+    for keyword in INTEGER_ONLY_KEYWORDS:
+        header.remove(keyword, ignore_missing=True)
 
     logger.info(f"Writing the flattened {scale_mask_fits} to {output_fits}")
     fits.writeto(filename=output_fits, data=mask, header=header, overwrite=overwrite)
@@ -119,6 +129,9 @@ def cli(args: Namespace | None = None) -> None:
 
     Args:
         args (Namespace | None, optional): Arguments parsed by ``get_parser``. If None they are parsed from the command line. Defaults to None.
+
+    Raises:
+        ValueError: Raised for an operation that has no branch here, e.g. one added to ``get_parser`` alone
     """
     args = get_parser().parse_args() if args is None else args
 
@@ -128,3 +141,6 @@ def cli(args: Namespace | None = None) -> None:
             output_fits=args.output_fits,
             overwrite=args.overwrite,
         )
+    else:
+        msg = f"The scales operation {args.operation!r} is not known"
+        raise ValueError(msg)

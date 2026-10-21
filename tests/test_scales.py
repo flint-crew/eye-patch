@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import logging
 import sys
+from argparse import Namespace
 from pathlib import Path
 
 import numpy as np
 import pytest
 from astropy.io import fits
 
+from eye_patch import scales
 from eye_patch.cli import cli
 from eye_patch.naming import mask_fits_from_scale_mask
 from eye_patch.scales import flatten_scale_mask, flatten_scale_mask_fits, get_parser
@@ -227,3 +229,31 @@ def test_cli_scales_flatten_overwrite(
     monkeypatch.setattr(sys, "argv", [*argv, "--overwrite"])
     cli()
     assert np.array_equal(fits.getdata(existing) == 1, _scale_mask() != 0)
+
+
+@pytest.mark.parametrize(
+    ("dtype", "header"),
+    [
+        (np.int16, fits.Header({"BLANK": -32768})),
+        (np.uint16, fits.Header()),  # Written by astropy with BZERO = 32768
+    ],
+)
+def test_flatten_scale_mask_fits_integer_scale_mask(
+    tmp_path: Path, dtype: type, header: fits.Header
+) -> None:
+    """Keywords that only describe integer data are dropped from the header of the
+    float output, which would otherwise be invalid"""
+    scale_mask_fits = tmp_path / "image.scalemask.fits"
+    fits.writeto(scale_mask_fits, _scale_mask().astype(dtype), header=header)
+
+    output_fits = flatten_scale_mask_fits(scale_mask_fits=scale_mask_fits)
+
+    with fits.open(output_fits) as hdul:
+        assert not {"BLANK", "BSCALE", "BZERO"} & set(hdul[0].header)
+        assert np.array_equal(hdul[0].data == 1, _scale_mask() != 0)
+
+
+def test_scales_cli_unknown_operation() -> None:
+    """An operation without a branch in cli is an error rather than doing nothing"""
+    with pytest.raises(ValueError, match="'unknown' is not known"):
+        scales.cli(args=Namespace(operation="unknown"))
