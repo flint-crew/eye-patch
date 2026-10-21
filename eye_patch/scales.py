@@ -16,9 +16,6 @@ from eye_patch.naming import check_output_fits, mask_fits_from_scale_mask
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-# Header keywords that describe integer data, which a float image cannot carry
-INTEGER_ONLY_KEYWORDS = ("BLANK", "BSCALE", "BZERO")
-
 
 def flatten_scale_mask(scale_mask: NDArray[np.floating]) -> NDArray[np.float32]:
     """Flatten a per-scale mask into a single mask, where a pixel that is set at
@@ -78,7 +75,7 @@ def flatten_scale_mask_fits(
 
     # The flattened mask is written as floats, so keywords that only describe integer
     # data (e.g. from an integer per-scale mask) would make its header invalid
-    for keyword in INTEGER_ONLY_KEYWORDS:
+    for keyword in ("BLANK", "BSCALE", "BZERO"):
         header.remove(keyword, ignore_missing=True)
 
     logger.info(f"Writing the flattened {scale_mask_fits} to {output_fits}")
