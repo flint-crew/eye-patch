@@ -34,24 +34,53 @@ def flatten_scale_mask(scale_mask: NDArray[np.floating]) -> NDArray[np.float32]:
 
 
 def flatten_scale_mask_fits(
-    scale_mask_fits: Path, output_fits: Path | None = None, overwrite: bool = True
+    scale_mask_fits: str | Path,
+    output_fits: str | Path | None = None,
+    overwrite: bool = False,
 ) -> Path:
     """Flatten a per-scale mask FITS image into a single mask (see
     ``flatten_scale_mask``), written with the header of the per-scale mask.
 
+    An existing output is only replaced with ``overwrite``, which is checked before
+    anything is read. This includes an output that is ``scale_mask_fits`` itself,
+    whose scales would be lost.
+
     Args:
-        scale_mask_fits (Path): The per-scale mask to flatten
-        output_fits (Path | None, optional): Where to write the flattened mask. If None it is named after ``scale_mask_fits`` (see ``mask_fits_from_scale_mask``), so ``image.scalemask.fits`` becomes ``image.mask.fits``. Defaults to None.
-        overwrite (bool, optional): Passed to `fits.writeto`, and will overwrite files should they exist. Defaults to True.
+        scale_mask_fits (str | Path): The per-scale mask to flatten
+        output_fits (str | Path | None, optional): Where to write the flattened mask. If None it is named after ``scale_mask_fits`` (see ``mask_fits_from_scale_mask``), so ``image.scalemask.fits`` becomes ``image.mask.fits``. Defaults to None.
+        overwrite (bool, optional): Replace the output should it already exist, with a warning. Defaults to False.
+
+    Raises:
+        FileExistsError: Raised when the output already exists and ``overwrite`` is False
 
     Returns:
         Path: The flattened mask that was written
     """
+    scale_mask_fits = Path(scale_mask_fits)
     output_fits = (
         mask_fits_from_scale_mask(scale_mask_fits=scale_mask_fits)
         if output_fits is None
-        else output_fits
+        else Path(output_fits)
     )
+
+    # Checked up front, so an existing file is never replaced by mistake. samefile
+    # also catches the input reached through another path, e.g. a symbolic link
+    if output_fits.exists():
+        is_input = output_fits.samefile(scale_mask_fits)
+        if not overwrite:
+            msg = (
+                f"{output_fits} is the per-scale mask being flattened, which would lose its scales"
+                if is_input
+                else f"{output_fits} already exists"
+            )
+            msg += ". Set overwrite=True (--overwrite on the CLI) to replace it"
+            raise FileExistsError(msg)
+        if is_input:
+            logger.warning(
+                f"Replacing the per-scale mask {scale_mask_fits} with its flattened mask, which loses its scales"
+            )
+        else:
+            logger.warning(f"Overwriting the existing {output_fits}")
 
     with fits.open(scale_mask_fits) as scale_mask:
         header = scale_mask[0].header
@@ -91,6 +120,11 @@ def get_parser(parser: ArgumentParser | None = None) -> ArgumentParser:
         default=None,
         help="Path to write the flattened mask to. Defaults to the per-scale mask with its .scalemask.fits (or .fits) suffix replaced by .mask.fits",
     )
+    flatten_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace the output should it already exist, including the per-scale mask itself. Without it an existing output is an error",
+    )
 
     return parser
 
@@ -105,5 +139,7 @@ def cli(args: Namespace | None = None) -> None:
 
     if args.operation == "flatten":
         flatten_scale_mask_fits(
-            scale_mask_fits=args.scale_mask, output_fits=args.output_fits
+            scale_mask_fits=args.scale_mask,
+            output_fits=args.output_fits,
+            overwrite=args.overwrite,
         )

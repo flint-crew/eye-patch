@@ -265,7 +265,9 @@ eye-patch scales flatten <image>.scalemask.fits
 ```
 
 The flattened mask is written to `<image>.mask.fits`, or to the path given with
-`--output-fits`. The same operation is available in Python as
+`--output-fits`. An existing file is only replaced with `--overwrite`, and
+otherwise is an error, so a plain mask of the same image is never replaced by
+mistake. The same operation is available in Python as
 `eye_patch.scales.flatten_scale_mask_fits`.
 
 This is intended to provide a mechanism to ensure cleaning at larger scales

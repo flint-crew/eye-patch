@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
@@ -132,3 +133,97 @@ def test_scales_parser_is_standalone() -> None:
     assert args.operation == "flatten"
     assert args.scale_mask == Path("image.scalemask.fits")
     assert args.output_fits == Path("out.fits")
+    assert not args.overwrite
+
+
+def test_flatten_scale_mask_fits_will_not_replace_an_existing_output(
+    scale_mask_fits: Path, tmp_path: Path
+) -> None:
+    """An existing output is an error by default, and is left untouched"""
+    existing = tmp_path / "image.mask.fits"
+    fits.writeto(existing, np.full(SHAPE, 7.0))
+
+    with pytest.raises(FileExistsError, match="already exists"):
+        flatten_scale_mask_fits(scale_mask_fits=scale_mask_fits)
+
+    assert np.all(fits.getdata(existing) == 7.0)
+
+
+def test_flatten_scale_mask_fits_overwrites_with_a_warning(
+    scale_mask_fits: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """With overwrite an existing output is replaced, with a warning"""
+    existing = tmp_path / "image.mask.fits"
+    fits.writeto(existing, np.full(SHAPE, 7.0))
+
+    with caplog.at_level(logging.WARNING, logger="eye-patch"):
+        flatten_scale_mask_fits(scale_mask_fits=scale_mask_fits, overwrite=True)
+
+    assert "Overwriting the existing" in caplog.text
+    assert np.array_equal(fits.getdata(existing) == 1, _scale_mask() != 0)
+
+
+@pytest.mark.parametrize("through_link", [False, True])
+def test_flatten_scale_mask_fits_will_not_replace_its_input(
+    scale_mask_fits: Path, tmp_path: Path, through_link: bool
+) -> None:
+    """The per-scale mask is never replaced by its flattened mask by default, even
+    when the output reaches it through a symbolic link"""
+    output_fits = scale_mask_fits
+    if through_link:
+        output_fits = tmp_path / "link.fits"
+        output_fits.symlink_to(scale_mask_fits)
+
+    with pytest.raises(FileExistsError, match="would lose its scales"):
+        flatten_scale_mask_fits(
+            scale_mask_fits=scale_mask_fits, output_fits=output_fits
+        )
+
+    assert np.array_equal(fits.getdata(scale_mask_fits), _scale_mask())
+
+
+def test_flatten_scale_mask_fits_replaces_its_input_with_a_warning(
+    scale_mask_fits: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """With overwrite the per-scale mask can be replaced, with a warning that its
+    scales are lost"""
+    with caplog.at_level(logging.WARNING, logger="eye-patch"):
+        flatten_scale_mask_fits(
+            scale_mask_fits=scale_mask_fits,
+            output_fits=scale_mask_fits,
+            overwrite=True,
+        )
+
+    assert "loses its scales" in caplog.text
+    assert np.array_equal(fits.getdata(scale_mask_fits) == 1, _scale_mask() != 0)
+
+
+def test_flatten_scale_mask_fits_returns_a_path(
+    scale_mask_fits: Path, tmp_path: Path
+) -> None:
+    """The output is returned as a Path, even when given as a str"""
+    output_fits = flatten_scale_mask_fits(
+        scale_mask_fits=str(scale_mask_fits), output_fits=str(tmp_path / "out.fits")
+    )
+
+    assert isinstance(output_fits, Path)
+    assert output_fits == tmp_path / "out.fits"
+
+
+def test_cli_scales_flatten_overwrite(
+    scale_mask_fits: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without --overwrite an existing output is an error, and with it the output
+    is replaced"""
+    existing = scale_mask_fits.parent / "image.mask.fits"
+    fits.writeto(existing, np.full(SHAPE, 7.0))
+    argv = ["eye-patch", "scales", "flatten", str(scale_mask_fits)]
+
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(FileExistsError):
+        cli()
+    assert np.all(fits.getdata(existing) == 7.0)
+
+    monkeypatch.setattr(sys, "argv", [*argv, "--overwrite"])
+    cli()
+    assert np.array_equal(fits.getdata(existing) == 1, _scale_mask() != 0)
