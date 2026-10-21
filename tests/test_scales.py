@@ -174,7 +174,7 @@ def test_flatten_scale_mask_fits_will_not_replace_its_input(
         output_fits = tmp_path / "link.fits"
         output_fits.symlink_to(scale_mask_fits)
 
-    with pytest.raises(FileExistsError, match="would lose its scales"):
+    with pytest.raises(FileExistsError, match="is also an input"):
         flatten_scale_mask_fits(
             scale_mask_fits=scale_mask_fits, output_fits=output_fits
         )
@@ -194,7 +194,7 @@ def test_flatten_scale_mask_fits_replaces_its_input_with_a_warning(
             overwrite=True,
         )
 
-    assert "loses its scales" in caplog.text
+    assert "Replacing the input" in caplog.text
     assert np.array_equal(fits.getdata(scale_mask_fits) == 1, _scale_mask() != 0)
 
 

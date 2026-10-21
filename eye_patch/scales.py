@@ -11,7 +11,7 @@ import numpy as np
 from astropy.io import fits
 
 from eye_patch.logging import logger
-from eye_patch.naming import mask_fits_from_scale_mask
+from eye_patch.naming import check_output_fits, mask_fits_from_scale_mask
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -42,8 +42,8 @@ def flatten_scale_mask_fits(
     ``flatten_scale_mask``), written with the header of the per-scale mask.
 
     An existing output is only replaced with ``overwrite``, which is checked before
-    anything is read. This includes an output that is ``scale_mask_fits`` itself,
-    whose scales would be lost.
+    anything is read (see ``check_output_fits``). This includes an output that is
+    ``scale_mask_fits`` itself, whose scales would be lost.
 
     Args:
         scale_mask_fits (str | Path): The per-scale mask to flatten
@@ -63,24 +63,9 @@ def flatten_scale_mask_fits(
         else Path(output_fits)
     )
 
-    # Checked up front, so an existing file is never replaced by mistake. samefile
-    # also catches the input reached through another path, e.g. a symbolic link
-    if output_fits.exists():
-        is_input = output_fits.samefile(scale_mask_fits)
-        if not overwrite:
-            msg = (
-                f"{output_fits} is the per-scale mask being flattened, which would lose its scales"
-                if is_input
-                else f"{output_fits} already exists"
-            )
-            msg += ". Set overwrite=True (--overwrite on the CLI) to replace it"
-            raise FileExistsError(msg)
-        if is_input:
-            logger.warning(
-                f"Replacing the per-scale mask {scale_mask_fits} with its flattened mask, which loses its scales"
-            )
-        else:
-            logger.warning(f"Overwriting the existing {output_fits}")
+    check_output_fits(
+        output_fits=output_fits, overwrite=overwrite, input_fits=(scale_mask_fits,)
+    )
 
     with fits.open(scale_mask_fits) as scale_mask:
         header = scale_mask[0].header

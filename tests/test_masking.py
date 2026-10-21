@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -244,6 +245,7 @@ def test_fits_masking_scales_as_fwhm(
                 multiscale_scales=(0, 32),
                 beam_shape_erode_scales_as_fwhm=scales_as_fwhm,
             ),
+            overwrite=True,  # The second setting remakes the same mask
         )
         assert names.scale_mask_fits is not None
         scale_mask = fits.getdata(names.scale_mask_fits).astype(int)
@@ -295,6 +297,7 @@ def test_fits_masking_grows_low_snr_islands_without_flood_fill(tmp_path: Path) -
             masking_options=MaskingOptions(
                 base_clip=5.0, grow_low_snr_island=grow_low_snr_island
             ),
+            overwrite=True,  # The second setting remakes the same mask
         )
         assert names.mask_fits is not None
         masks.append(fits.getdata(names.mask_fits) > 0)
@@ -408,3 +411,48 @@ def test_fits_masking_with_degenerate_axes(
         assert np.array_equal(data, np.squeeze(products[4][field]))
     mask_field = "scale_mask_fits" if "scale_mask_fits" in products[2] else "mask_fits"
     assert np.any(products[2][mask_field])
+
+
+def test_fits_masking_will_not_replace_an_existing_mask(
+    fits_dir: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An existing mask is an error without overwrite, and is left untouched. With
+    overwrite it is replaced, with a warning"""
+    existing = fits_dir / "image.mask.fits"
+    fits.writeto(existing, np.full(SHAPE, 7.0))
+
+    def make_mask(overwrite: bool) -> FITSMaskNames:
+        return create_mask_from_fits(
+            fits_image_path=fits_dir / "image.fits",
+            fits_rms_path=fits_dir / "rms.fits",
+            fits_bkg_path=fits_dir / "bkg.fits",
+            masking_options=MaskingOptions(),
+            overwrite=overwrite,
+        )
+
+    with pytest.raises(FileExistsError, match="already exists"):
+        make_mask(overwrite=False)
+    assert np.all(fits.getdata(existing) == 7.0)
+
+    with caplog.at_level(logging.WARNING, logger="eye-patch"):
+        names = make_mask(overwrite=True)
+    assert "Overwriting the existing" in caplog.text
+    assert names.mask_fits == existing
+    assert np.all(fits.getdata(existing) == 1.0)
+
+
+def test_fits_masking_checks_every_output_first(fits_dir: Path) -> None:
+    """Every output is checked before anything is written, so an existing signal
+    image stops the mask from being made too"""
+    fits.writeto(fits_dir / "image.signal.fits", np.zeros(SHAPE))
+
+    with pytest.raises(FileExistsError, match=r"image\.signal\.fits already exists"):
+        create_mask_from_fits(
+            fits_image_path=fits_dir / "image.fits",
+            fits_rms_path=fits_dir / "rms.fits",
+            fits_bkg_path=fits_dir / "bkg.fits",
+            masking_options=MaskingOptions(),
+            create_signal_fits=True,
+        )
+
+    assert not (fits_dir / "image.mask.fits").exists()

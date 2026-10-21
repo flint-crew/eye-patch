@@ -13,7 +13,11 @@ from astropy.wcs import WCS
 from reproject import reproject_interp
 
 from eye_patch.logging import logger
-from eye_patch.naming import FITSMaskNames, create_fits_mask_names
+from eye_patch.naming import (
+    FITSMaskNames,
+    check_output_fits,
+    create_fits_mask_names,
+)
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -55,7 +59,7 @@ def _reproject_mask_image(
 def extract_beam_mask_from_mosaic(
     fits_beam_image_path: Path,
     fits_mosaic_mask_names: FITSMaskNames,
-    overwrite: bool = True,
+    overwrite: bool = False,
 ) -> FITSMaskNames:
     """Extract a region based on an existing FITS image from a masked FITS
     image. Here a masked FITS image is intended to be one created by
@@ -71,10 +75,11 @@ def extract_beam_mask_from_mosaic(
     Args:
         fits_beam_image_path (Path): The template image with a valid WCS. This region is used to extract the masked region
         fits_mosaic_mask_names (FITSMaskNames): The previously masked image
-        overwrite (bool): Passed to `fits.writeto`, and will overwrite files should they exist. Defaults to True.
+        overwrite (bool, optional): Replace the outputs should they already exist, with a warning. They are checked before anything is extracted (see ``check_output_fits``). Defaults to False.
 
     Raises:
         ValueError: Raised when neither a ``mask_fits`` or ``scale_mask_fits`` is provided to extract from
+        FileExistsError: Raised when an output already exists and ``overwrite`` is False
 
     Returns:
         FITSMaskNames: Container with the extracted masks, which are named after ``fits_beam_image_path``. Masks that were not extracted are None. The masks take the shape of the template should its only other axes be degenerate (e.g. a single frequency and Stokes), and are otherwise two-dimensional.
@@ -88,6 +93,17 @@ def extract_beam_mask_from_mosaic(
         raise ValueError(msg)
 
     mask_names = create_fits_mask_names(fits_image=fits_beam_image_path)
+
+    # The outputs are checked before anything is extracted, so none is written by halves
+    input_fits = (fits_beam_image_path, *fits_mosaic_mask_names)
+    for mosaic_mask, output_fits in (
+        (fits_mosaic_mask_names.mask_fits, mask_names.mask_fits),
+        (fits_mosaic_mask_names.scale_mask_fits, mask_names.scale_mask_fits),
+    ):
+        if mosaic_mask is not None and output_fits is not None:
+            check_output_fits(
+                output_fits=output_fits, overwrite=overwrite, input_fits=input_fits
+            )
 
     with fits.open(fits_beam_image_path) as beam_image:
         header = beam_image[0].header
@@ -162,6 +178,11 @@ def get_parser(parser: ArgumentParser | None = None) -> ArgumentParser:
         type=Path,
         help="The field mosaic image that will be used as a basis to extract a region mask from. Should it end with .scalemask.fits it is treated as a per-scale mask, and its bitmapped values are preserved",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace the outputs should they already exist. Without it an existing output is an error",
+    )
 
     return parser
 
@@ -182,4 +203,5 @@ def cli(args: Namespace | None = None) -> None:
     extract_beam_mask_from_mosaic(
         fits_beam_image_path=args.beam_image,
         fits_mosaic_mask_names=mosaic_mask_names,
+        overwrite=args.overwrite,
     )

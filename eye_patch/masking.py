@@ -20,7 +20,11 @@ from eye_patch.flood_fill import (
 )
 from eye_patch.logging import logger
 from eye_patch.mac import minimum_absolute_clip_threshold
-from eye_patch.naming import FITSMaskNames, create_fits_mask_names
+from eye_patch.naming import (
+    FITSMaskNames,
+    check_output_fits,
+    create_fits_mask_names,
+)
 from eye_patch.options import MaskingOptions
 from eye_patch.pixel_utils import has_beam_parameters
 from eye_patch.snr import create_signal_from_rmsbkg
@@ -108,7 +112,7 @@ def create_native_resolution_mask(
     fits_rms_path: Path | None,
     fits_bkg_path: Path | None,
     create_signal_fits: bool = False,
-    overwrite: bool = True,
+    overwrite: bool = False,
 ) -> FITSMaskNames:
     """Create a mask for an input FITS image based on a signal to noise given a corresponding pair of RMS and background FITS images, or on the minimum absolute clip of the image itself should ``use_mac`` be set.
 
@@ -137,10 +141,11 @@ def create_native_resolution_mask(
         fits_rms_path (Path | None, optional): Path to the FITS file with an RMS image corresponding to ``fits_image_path``. Defaults to None.
         fits_bkg_path (Path | None, optional): Path to the FITS file with an background image corresponding to ``fits_image_path``. Defaults to None.
         create_signal_fits (bool, optional): Create an output signal map. Defaults to False.
-        overwrite (bool): Passed to `fits.writeto`, and will overwrite files should they exist. Defaults to True.
+        overwrite (bool, optional): Replace the outputs should they already exist, with a warning. They are checked before the mask is made (see ``check_output_fits``). Defaults to False.
 
     Raises:
         ValueError: Raised when a signal image is needed but the RMS or background FITS images are not provided
+        FileExistsError: Raised when an output already exists and ``overwrite`` is False
 
     Returns:
         FITSMaskNames: Container describing the FITS images that were written, with unwritten products set to None. ``signal_fits`` is only set if ``create_signal_fits`` is True and a signal image was needed. When ``beam_shape_erode`` is used with multiple scales (and the beam is known) the bit-packed mask is written to ``scale_mask_fits``, otherwise the mask is written to ``mask_fits``.
@@ -153,8 +158,33 @@ def create_native_resolution_mask(
         fits_header = fits_image[0].header
         signal_data = fits_image[0].data
 
+    # Multiple erosion scales are bit-packed per pixel, so belong in the scale mask.
+    # Without beam parameters no erosion happens and the mask is a plain 0/1 mask
+    scales = masking_options.multiscale_scales
+    is_scale_mask = (
+        masking_options.beam_shape_erode
+        and has_beam_parameters(fits_header=fits_header)
+        and (scales is not None and len(scales) > 1)
+    )
+    output_fits = mask_names.scale_mask_fits if is_scale_mask else mask_names.mask_fits
+    need_signal = _need_to_make_signal(masking_options=masking_options)
+
+    # The outputs are checked before the mask is made, so none is written by halves
+    input_fits = (fits_image_path, fits_rms_path, fits_bkg_path)
+    assert output_fits is not None
+    check_output_fits(
+        output_fits=output_fits, overwrite=overwrite, input_fits=input_fits
+    )
+    if need_signal and create_signal_fits:
+        assert mask_names.signal_fits is not None
+        check_output_fits(
+            output_fits=mask_names.signal_fits,
+            overwrite=overwrite,
+            input_fits=input_fits,
+        )
+
     signal_fits: Path | None = None
-    if _need_to_make_signal(masking_options=masking_options):
+    if need_signal:
         if fits_rms_path is None or fits_bkg_path is None:
             msg = "A signal image is needed, which requires paths to the RMS and background FITS images"
             raise ValueError(msg)
@@ -193,16 +223,6 @@ def create_native_resolution_mask(
             scales_as_fwhm=masking_options.beam_shape_erode_scales_as_fwhm,
         )
 
-    # Multiple erosion scales are bit-packed per pixel, so belong in the scale mask.
-    # Without beam parameters no erosion happens and the mask is a plain 0/1 mask
-    scales = masking_options.multiscale_scales
-    is_scale_mask = (
-        masking_options.beam_shape_erode
-        and has_beam_parameters(fits_header=fits_header)
-        and (scales is not None and len(scales) > 1)
-    )
-    output_fits = mask_names.scale_mask_fits if is_scale_mask else mask_names.mask_fits
-
     logger.info(f"Writing {output_fits}")
     fits.writeto(
         filename=output_fits,
@@ -223,7 +243,7 @@ def create_mask_from_fits(
     fits_rms_path: Path | None = None,
     fits_bkg_path: Path | None = None,
     create_signal_fits: bool = False,
-    overwrite: bool = True,
+    overwrite: bool = False,
 ) -> FITSMaskNames:
     """Create a mask for an input FITS image, dispatching to the approach selected by
     the ``masking_options``. Should ``convolve_first`` be set the image is first
@@ -237,7 +257,7 @@ def create_mask_from_fits(
         fits_rms_path (Path | None, optional): Path to the FITS file with an RMS image corresponding to ``fits_image_path``. Defaults to None.
         fits_bkg_path (Path | None, optional): Path to the FITS file with an background image corresponding to ``fits_image_path``. Defaults to None.
         create_signal_fits (bool, optional): Create an output signal map. Defaults to False.
-        overwrite (bool): Passed to `fits.writeto`, and will overwrite files should they exist. Defaults to True.
+        overwrite (bool, optional): Replace the outputs should they already exist, with a warning. Without it an existing output raises a FileExistsError. Defaults to False.
 
     Returns:
         FITSMaskNames: Container describing the FITS images that were written by the selected approach, with unwritten products set to None
@@ -288,6 +308,11 @@ def get_parser(parser: ArgumentParser | None = None) -> ArgumentParser:
         action="store_true",
         help="Save the signal image internally generated (should it be generated)",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace the outputs should they already exist. Without it an existing output is an error",
+    )
 
     return parser
 
@@ -310,4 +335,5 @@ def cli(args: Namespace | None = None) -> None:
         fits_bkg_path=args.bkg_fits,
         create_signal_fits=args.save_signal,
         masking_options=masking_options,
+        overwrite=args.overwrite,
     )

@@ -318,7 +318,12 @@ native scale (a scale of `0`), the flood clip is raised to at least `0.8`.
 
 ## Accessing via the CLI
 
-The masking utility may be accessed via the `eye-patch` CLI entry point:
+The masking utility may be accessed via the `eye-patch` CLI entry point.
+
+None of the commands replace an existing file by default. Should an output
+already exist the command stops with an error before any work is done, unless
+`--overwrite` is given (`overwrite=True` in Python), in which case the output is
+replaced with a warning.
 
 ```{argparse}
 :ref: eye_patch.cli.get_parser
