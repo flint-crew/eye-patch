@@ -18,7 +18,11 @@ from eye_patch.erosion import (
 from eye_patch.flood_fill import _flood_fill
 from eye_patch.logging import logger
 from eye_patch.mac import minimum_absolute_clip_threshold
-from eye_patch.naming import FITSMaskNames, create_fits_mask_names
+from eye_patch.naming import (
+    FITSMaskNames,
+    check_output_fits,
+    create_fits_mask_names,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -157,7 +161,7 @@ def _create_convolved_scale_mask(
 def create_convolved_erosion_mask(
     fits_image_path: Path,
     masking_options: MaskingOptions,
-    overwrite: bool = True,
+    overwrite: bool = False,
 ) -> FITSMaskNames:
     """Create a per-scale clean mask by smoothing the input image to some scale, and then
     applying a reverse flood fill with the minimum absolute clip statistic. After the initial
@@ -166,12 +170,21 @@ def create_convolved_erosion_mask(
     Args:
         fits_image_path (Path): The path to the FITS image to load.
         masking_options (MaskingOptions): Options to use throughout the convolve and erosion process.
-        overwrite (bool): Passed to `fits.writeto`, and will overwrite files should they exist. Defaults to True.
+        overwrite (bool, optional): Replace the output should it already exist, with a warning. It is checked before the image is read (see ``check_output_fits``). Defaults to False.
+
+    Raises:
+        FileExistsError: Raised when the output already exists and ``overwrite`` is False
 
     Returns:
         FITSMaskNames: Clean mask written to a FITS file. Should multiple scales be specified they are encoded bitwise per pixel.
     """
     mask_names = create_fits_mask_names(fits_image=fits_image_path)
+    assert mask_names.scale_mask_fits is not None
+    check_output_fits(
+        output_fits=mask_names.scale_mask_fits,
+        overwrite=overwrite,
+        input_fits=(fits_image_path,),
+    )
 
     logger.info(f"Getting image data from {fits_image_path=}")
     with fits.open(fits_image_path) as fits_image:

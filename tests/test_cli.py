@@ -3,16 +3,13 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
 
+import pytest
 from capn_crunch import create_options_from_parser
 
 from eye_patch import extract, masking
 from eye_patch.cli import cli, get_parser
 from eye_patch.options import MaskingOptions
-
-if TYPE_CHECKING:
-    import pytest
 
 
 def test_arg_parser_cli_and_masking_options():
@@ -119,4 +116,18 @@ def test_cli_without_mode_prints_help(
         cli()
 
     assert "Supplied mode None is not known" in caplog.text
-    assert "{mask,extractmask}" in capsys.readouterr().out
+    assert "{mask,extractmask,scales}" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["mask", "img.fits"],
+        ["extractmask", "beam.fits", "mosaic.fits"],
+        ["scales", "flatten", "image.scalemask.fits"],
+    ],
+)
+def test_cli_overwrite_flag(argv: list[str]) -> None:
+    """Every sub-command that writes FITS images only replaces them with --overwrite"""
+    assert not get_parser().parse_args(args=argv).overwrite
+    assert get_parser().parse_args(args=[*argv, "--overwrite"]).overwrite

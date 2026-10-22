@@ -45,11 +45,21 @@ def test_extract_beam_mask_from_mosaic_outside_footprint(tmp_path: Path) -> None
         template_path, np.zeros(SHAPE), header=_celestial_header(crpix=(100, 50))
     )
 
-    for _ in range(2):  # Running again should overwrite rather than raise
-        names = extract_beam_mask_from_mosaic(
+    mosaic_mask_names = FITSMaskNames(mask_fits=mosaic_path)
+    extract_beam_mask_from_mosaic(
+        fits_beam_image_path=template_path, fits_mosaic_mask_names=mosaic_mask_names
+    )
+    # Running again needs overwrite, with which it replaces the mask rather than raise
+    with pytest.raises(FileExistsError, match="already exists"):
+        extract_beam_mask_from_mosaic(
             fits_beam_image_path=template_path,
-            fits_mosaic_mask_names=FITSMaskNames(mask_fits=mosaic_path),
+            fits_mosaic_mask_names=mosaic_mask_names,
         )
+    names = extract_beam_mask_from_mosaic(
+        fits_beam_image_path=template_path,
+        fits_mosaic_mask_names=mosaic_mask_names,
+        overwrite=True,
+    )
 
     assert names.mask_fits is not None
     mask_data = fits.getdata(names.mask_fits)

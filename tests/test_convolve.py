@@ -116,3 +116,19 @@ def test_fits_masking_convolve_first_with_nan(fits_dir: Path) -> None:
     # The second scale is the second bit
     scale_four = (mask_data.astype(int) & 2) > 0
     assert np.mean(scale_four) > 0.9
+
+
+def test_fits_masking_convolve_first_will_not_replace_an_existing_mask(
+    fits_dir: Path,
+) -> None:
+    """The convolve first approach also refuses to replace an existing mask"""
+    existing = fits_dir / "image.scalemask.fits"
+    fits.writeto(existing, np.full(SHAPE, 7.0))
+
+    with pytest.raises(FileExistsError, match="already exists"):
+        create_mask_from_fits(
+            fits_image_path=fits_dir / "image.fits",
+            masking_options=MaskingOptions(convolve_first=True),
+        )
+
+    assert np.all(fits.getdata(existing) == 7.0)

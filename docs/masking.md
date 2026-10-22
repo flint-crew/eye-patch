@@ -303,9 +303,30 @@ thresholds change, and it should be possible to use lower limits. For example,
 factors of the minimum absolute clip, which this option always uses. At the
 native scale (a scale of `0`), the flood clip is raised to at least `0.8`.
 
+## Working with per-scale masks
+
+Per-scale masks, from either the multi-scale beam erosion or `--convolve-first`,
+can be worked with through `eye-patch scales`. A per-scale mask can be flattened
+into a single mask, where any pixel that is set at any scale becomes `1`, for
+tools that do not read bitmapped scales:
+
+```bash
+eye-patch scales flatten <image>.scalemask.fits
+```
+
+The flattened mask is written to `<image>.mask.fits`, or to the path given with
+`--output-fits`. As `<image>.mask.fits` is also the name of a plain mask of the
+same image, an existing file is only replaced with `--overwrite`. The same
+operation is available in Python as `eye_patch.scales.flatten_scale_mask_fits`.
+
 ## Accessing via the CLI
 
-The masking utility may be accessed via the `eye-patch` CLI entry point:
+The masking utility may be accessed via the `eye-patch` CLI entry point.
+
+None of the commands replace an existing file by default. Should an output
+already exist the command stops with an error before any work is done, unless
+`--overwrite` is given (`overwrite=True` in Python), in which case the output is
+replaced with a warning.
 
 ```{argparse}
 :ref: eye_patch.cli.get_parser
