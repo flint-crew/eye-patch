@@ -147,14 +147,20 @@ def fft_binary_erosion(
     logger.info("Beginning fft erosion ... ")
     original_shape = mask.shape
 
-    mask = mask[..., :, :].astype(float)
-    kernel = kernel[..., :, :].astype(float)
+    kernel_pixels = np.sum(kernel)
+
+    # Single precision halves the memory and the time. Its rounding error grows
+    # with the size of the kernel, and stays far below a pixel up to this size
+    dtype: type[np.floating] = np.float32 if kernel_pixels <= 100_000 else np.float64
+
+    mask = mask[..., :, :].astype(dtype)
+    kernel = kernel[..., :, :].astype(dtype)
 
     erode_sum = np.floor(np.abs(fftconvolve(mask, kernel, mode="same")) + 0.5)
 
     logger.info("... finished erosion")
 
-    erosion_mask: NDArray[np.bool] = erode_sum >= np.sum(kernel)
+    erosion_mask: NDArray[np.bool] = erode_sum >= kernel_pixels
     return np.reshape(erosion_mask, original_shape)
 
 

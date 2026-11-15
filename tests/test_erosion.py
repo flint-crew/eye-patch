@@ -203,6 +203,25 @@ def test_fft_binary_erosion() -> None:
     assert np.sum(eroded) == 0
 
 
+@pytest.mark.parametrize("kernel_size", [101, 401])
+def test_fft_binary_erosion_matches_scipy(kernel_size: int) -> None:
+    """The FFT erosion is exact in single precision, used by the smaller kernel,
+    and in double precision, used by the larger"""
+    mask = np.ones((1200, 1200), dtype=bool)
+    mask[[250, 700, 990], [900, 260, 940]] = False
+    kernel = np.ones((kernel_size, kernel_size), dtype=bool)
+
+    eroded = fft_binary_erosion(mask=mask, kernel=kernel)
+
+    # A square is two lines, which keeps the scipy erosion fast
+    expected = binary_erosion(
+        binary_erosion(mask, structure=np.ones((kernel_size, 1), dtype=bool)),
+        structure=np.ones((1, kernel_size), dtype=bool),
+    )
+    assert np.sum(expected) > 0, "Nothing is left, so nothing is compared"
+    np.testing.assert_array_equal(eroded, expected)
+
+
 def test_beam_shape_erode_nobeam():
     """Ensure that the beam shape erosion approach works. This should drop out pixels
     should the beam shape structure connectivity be statisifed. This should simply return
