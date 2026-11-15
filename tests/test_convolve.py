@@ -132,3 +132,45 @@ def test_fits_masking_convolve_first_will_not_replace_an_existing_mask(
         )
 
     assert np.all(fits.getdata(existing) == 7.0)
+
+
+def test_fits_masking_convolve_first_threads(fits_dir: Path) -> None:
+    """The mask does not depend on how many scales are processed at once"""
+    rng = np.random.default_rng(seed=1)
+    image = rng.normal(size=(200, 200)).astype(np.float32)
+    image[80:120, 80:120] += 20.0
+    image[30:33, 150:153] += 50.0
+    header = fits.getheader(fits_dir / "image.fits")
+
+    masks = []
+    for threads in (1, 3):
+        image_path = fits_dir / f"threads{threads}.fits"
+        fits.writeto(image_path, data=image, header=header)
+        names = create_mask_from_fits(
+            fits_image_path=image_path,
+            masking_options=MaskingOptions(
+                convolve_first=True,
+                seed_clip=1.2,
+                flood_clip=0.5,
+                mac_box_size=50,
+                multiscale_scales=(0, 4, 8, 16),
+                convolve_first_threads=threads,
+            ),
+        )
+        assert names.scale_mask_fits is not None
+        masks.append(fits.getdata(names.scale_mask_fits))
+
+    assert np.any(masks[0] > 0), "Nothing was masked, so nothing is compared"
+    assert len(np.unique(masks[0])) > 2, "Only one scale was masked"
+    np.testing.assert_array_equal(masks[0], masks[1])
+
+
+def test_fits_masking_convolve_first_threads_must_be_positive(fits_dir: Path) -> None:
+    """Without a thread no scale would be processed"""
+    with pytest.raises(AssertionError, match="threads"):
+        create_mask_from_fits(
+            fits_image_path=fits_dir / "image.fits",
+            masking_options=MaskingOptions(
+                convolve_first=True, convolve_first_threads=0
+            ),
+        )

@@ -3,6 +3,8 @@ is the ``convolve_first`` option"""
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -167,6 +169,9 @@ def create_convolved_erosion_mask(
     applying a reverse flood fill with the minimum absolute clip statistic. After the initial
     mask per scale is constructed a binary erosion is then performed to further refine the mask.
 
+    The scales are independent of one another, and ``convolve_first_threads`` of them
+    are processed at once.
+
     Args:
         fits_image_path (Path): The path to the FITS image to load.
         masking_options (MaskingOptions): Options to use throughout the convolve and erosion process.
@@ -211,16 +216,23 @@ def create_convolved_erosion_mask(
     )
     logger.info(f"Will be processing {scales=}")
 
+    threads = masking_options.convolve_first_threads
+    assert threads >= 1, f"{threads=}, but should be at least 1"
+    logger.info(f"Processing up to {threads} scales at once")
+
+    create_scale_mask = partial(
+        _create_convolved_scale_mask,
+        base_image,
+        fits_header,
+        masking_options=masking_options,
+    )
     output_mask = np.zeros(base_image.shape, dtype=np.float32)
 
-    for index, scale in enumerate(scales):
-        scale_mask = _create_convolved_scale_mask(
-            base_image=base_image,
-            fits_header=fits_header,
-            scale=scale,
-            masking_options=masking_options,
-        )
-        output_mask[scale_mask] += 2**index
+    # The filters release the GIL, so the scales do run at once. Each scale mask
+    # is packed as it arrives, so that no more than ``threads`` are held
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        for index, scale_mask in enumerate(executor.map(create_scale_mask, scales)):
+            output_mask[scale_mask] += 2**index
 
     logger.info(f"Writing {mask_names.scale_mask_fits}")
     fits.writeto(

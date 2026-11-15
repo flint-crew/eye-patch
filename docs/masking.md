@@ -303,6 +303,13 @@ thresholds change, and it should be possible to use lower limits. For example,
 factors of the minimum absolute clip, which this option always uses. At the
 native scale (a scale of `0`), the flood clip is raised to at least `0.8`.
 
+Each scale is processed on its own, one after the other by default. On large
+images this can be slow, and `--convolve-first-threads` sets how many scales are
+processed at once. The mask is the same either way. Each scale holds its own
+full-size images, so memory grows with the number of threads. As a guide, a
+14,000 pixel image with five scales took 100 seconds and 11 GB with one thread,
+and 29 seconds and 18 GB with five.
+
 ## Working with per-scale masks
 
 Per-scale masks, from either the multi-scale beam erosion or `--convolve-first`,
