@@ -3,7 +3,7 @@ is the ``convolve_first`` option"""
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import copy_context
 from functools import partial
 from typing import TYPE_CHECKING
@@ -229,20 +229,20 @@ def create_convolved_erosion_mask(
     )
     output_mask = np.zeros(base_image.shape, dtype=np.float32)
 
-    # The filters release the GIL, so the scales do run at once. Each scale mask
-    # is packed as it arrives, so that no more than ``threads`` are held
+    # The filters release the GIL, so the scales do run at once.
+    #
     # A thread starts without the context of its caller, which is where a workflow
     # manager (e.g. Prefect) keeps the run that log messages belong to. A context
     # can only be entered by one thread at a time, so each scale has its own copy
-    contexts = [copy_context() for _ in scales]
     with ThreadPoolExecutor(max_workers=threads) as executor:
-        scale_masks = executor.map(
-            lambda context, scale: context.run(create_scale_mask, scale=scale),
-            contexts,
-            scales,
-        )
-        for index, scale_mask in enumerate(scale_masks):
-            output_mask[scale_mask] += 2**index
+        futures = {
+            executor.submit(copy_context().run, create_scale_mask, scale=scale): index
+            for index, scale in enumerate(scales)
+        }
+        # Each scale mask is packed and released as soon as it is ready, to save memory
+        for future in as_completed(futures):
+            index = futures.pop(future)
+            output_mask[future.result()] += 2**index
 
     logger.info(f"Writing {mask_names.scale_mask_fits}")
     fits.writeto(
