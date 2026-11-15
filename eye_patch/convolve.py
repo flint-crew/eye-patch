@@ -229,11 +229,8 @@ def create_convolved_erosion_mask(
     )
     output_mask = np.zeros(base_image.shape, dtype=np.float32)
 
-    # The filters release the GIL, so the scales do run at once.
-    #
-    # A thread starts without the context of its caller, which is where a workflow
-    # manager (e.g. Prefect) keeps the run that log messages belong to. A context
-    # can only be entered by one thread at a time, so each scale has its own copy
+    # The filters release the GIL, so the scales do run at once. Each thread is
+    # given a copy of the context of the caller, which is needed for the logging
     with ThreadPoolExecutor(max_workers=threads) as executor:
         futures = {
             executor.submit(copy_context().run, create_scale_mask, scale=scale): index
@@ -243,6 +240,7 @@ def create_convolved_erosion_mask(
         for future in as_completed(futures):
             index = futures.pop(future)
             output_mask[future.result()] += 2**index
+            del future
 
     logger.info(f"Writing {mask_names.scale_mask_fits}")
     fits.writeto(
