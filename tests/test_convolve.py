@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
 from astropy.io import fits
 
+from eye_patch import convolve
 from eye_patch.convolve import convolve_image_by_scale
 from eye_patch.masking import create_mask_from_fits
 from eye_patch.naming import FITSMaskNames
@@ -174,3 +176,30 @@ def test_fits_masking_convolve_first_threads_must_be_positive(fits_dir: Path) ->
                 convolve_first=True, convolve_first_threads=0
             ),
         )
+
+
+def test_fits_masking_convolve_first_threads_keep_context(
+    fits_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each scale sees the context of the caller, which is how the log messages
+    of a scale reach a workflow manager"""
+    caller: ContextVar[str] = ContextVar("caller", default="unset")
+    caller.set("the caller")
+    seen: dict[int, str] = {}
+
+    def record_context(base_image, _fits_header, scale, **_):
+        seen[scale] = caller.get()
+        return np.zeros(base_image.shape, dtype=bool)
+
+    monkeypatch.setattr(convolve, "_create_convolved_scale_mask", record_context)
+
+    create_mask_from_fits(
+        fits_image_path=fits_dir / "image.fits",
+        masking_options=MaskingOptions(
+            convolve_first=True,
+            multiscale_scales=(0, 4, 8),
+            convolve_first_threads=3,
+        ),
+    )
+
+    assert seen == {0: "the caller", 4: "the caller", 8: "the caller"}
