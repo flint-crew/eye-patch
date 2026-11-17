@@ -3,6 +3,9 @@ is the ``convolve_first`` option"""
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
+from functools import partial
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -167,6 +170,9 @@ def create_convolved_erosion_mask(
     applying a reverse flood fill with the minimum absolute clip statistic. After the initial
     mask per scale is constructed a binary erosion is then performed to further refine the mask.
 
+    The scales are independent of one another, and ``convolve_first_threads`` of them
+    are processed at once.
+
     Args:
         fits_image_path (Path): The path to the FITS image to load.
         masking_options (MaskingOptions): Options to use throughout the convolve and erosion process.
@@ -211,16 +217,30 @@ def create_convolved_erosion_mask(
     )
     logger.info(f"Will be processing {scales=}")
 
+    threads = masking_options.convolve_first_threads
+    assert threads >= 1, f"{threads=}, but should be at least 1"
+    logger.info(f"Processing up to {threads} scales at once")
+
+    create_scale_mask = partial(
+        _create_convolved_scale_mask,
+        base_image,
+        fits_header,
+        masking_options=masking_options,
+    )
     output_mask = np.zeros(base_image.shape, dtype=np.float32)
 
-    for index, scale in enumerate(scales):
-        scale_mask = _create_convolved_scale_mask(
-            base_image=base_image,
-            fits_header=fits_header,
-            scale=scale,
-            masking_options=masking_options,
-        )
-        output_mask[scale_mask] += 2**index
+    # The filters release the GIL, so the scales do run at once. Each thread is
+    # given a copy of the context of the caller, which is needed for the logging
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = {
+            executor.submit(copy_context().run, create_scale_mask, scale=scale): index
+            for index, scale in enumerate(scales)
+        }
+        # Each scale mask is packed and released as soon as it is ready, to save memory
+        for future in as_completed(futures):
+            index = futures.pop(future)
+            output_mask[future.result()] += 2**index
+            del future
 
     logger.info(f"Writing {mask_names.scale_mask_fits}")
     fits.writeto(

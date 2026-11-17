@@ -47,3 +47,5 @@ class MaskingOptions(BaseOptions):
     """Use each of the ``multiscale_scales`` as the FWHM of the Gaussian, rather than the Gaussian wsclean uses for it. This was the behaviour of earlier versions, and is about 2.3 times wider than the wsclean Gaussian of a scale."""
     convolve_first: bool = False
     """Construct the mask of each scale by first convolving the image to the scale, then flood filling it with the minimum absolute clip and eroding it by the restoring beam. ``base_clip``, ``flood_fill``, ``use_mac``, ``grow_low_snr_island`` and ``beam_shape_erode`` are not used"""
+    convolve_first_threads: int = 1
+    """The number of scales that ``convolve_first`` processes at once, each in its own thread. Each scale holds its own full-size images, so memory grows with the number of threads"""

@@ -303,6 +303,9 @@ thresholds change, and it should be possible to use lower limits. For example,
 factors of the minimum absolute clip, which this option always uses. At the
 native scale (a scale of `0`), the flood clip is raised to at least `0.8`.
 
+`--convolve-first-threads` sets how many scales are processed at once. More
+threads are faster, but use more memory.
+
 ## Working with per-scale masks
 
 Per-scale masks, from either the multi-scale beam erosion or `--convolve-first`,
